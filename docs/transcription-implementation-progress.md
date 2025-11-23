@@ -1,7 +1,7 @@
 # Transcription Tools Implementation Progress
 
 **Started:** 2025-11-23
-**Status:** Phase 3 - Text Annotation (COMPLETED) 🎉
+**Status:** Phase 4 - Multi-Layer Playback (COMPLETED) 🎉
 
 ---
 
@@ -130,9 +130,22 @@
 - Visual loop indicator shows active loop region with start/end times
 - Seamless integration with video player for hands-free transcription
 
+✅ **Multi-Layer Playback** 🎉
+- MultiTrackWaveform component with 3 synchronized audio tracks
+- Source audio, careful speech, and oral translation layers
+- Individual volume sliders and mute controls per track
+- Real-time waveform visualization for each track
+- Configurable playback modes via boolean flag:
+  - Kings & Princes mode: Tracks ≥84% play normal speed, <84% play at 0.75x
+  - All Kings mode: All enabled tracks play at normal speed
+- Visual king/prince indicators per track
+- Mode toggle button with clear descriptions
+- Synchronized playback across all tracks
+- Prestige-inspired workflow with modern flexibility
+
 ### In Progress
 🔄 **Next immediate tasks**
-- None! Phase 3 is complete. Ready to begin Phase 4 (Multi-Layer Playback).
+- None! Phase 4 is complete. Ready to begin Phase 5 (Oral Annotation Recording).
 
 ### Next Steps
 
@@ -311,16 +324,24 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 
 ---
 
-### Phase 4: Multi-Layer Playback (Weeks 7-8)
+### Phase 4: Multi-Layer Playback (Weeks 7-8) ✅ COMPLETED
 
-- [ ] Create MultiTrackWaveform.tsx component
-- [ ] Add WaveSurfer instance for each track (3 total)
-- [ ] Implement volume sliders with kings/princes logic
-- [ ] Synchronize playback across all tracks
-- [ ] Implement speed-adjusted playback for princes
-- [ ] Add mute checkboxes per track
+- [x] Create MultiTrackWaveform.tsx component
+- [x] Add WaveSurfer instance for each track (3 total)
+- [x] Implement volume sliders with configurable kings/princes logic
+- [x] Synchronize playback across all tracks
+- [x] Implement speed-adjusted playback for princes (with mode toggle)
+- [x] Add mute checkboxes per track
+- [x] Add boolean flag to switch between kings/princes and all-kings modes
 
-**Deliverable:** Multi-track playback in Preview tab
+**Deliverable:** ✅ Multi-track playback in Preview tab (COMPLETE!)
+
+**Commits:**
+- Add Phase 4: Multi-Layer Playback with configurable kings/princes mode (db5aebe)
+
+**Key Feature:** Configurable playback mode allows users to choose between:
+1. Traditional Prestige kings/princes logic (tracks <84% play slower)
+2. Simplified all-kings mode (all tracks at same speed)
 
 ---
 
