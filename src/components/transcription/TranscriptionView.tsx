@@ -167,7 +167,25 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
    * Select a segment
    */
   const handleSegmentSelect = (segmentId: string | undefined) => {
-    setState((prev) => ({ ...prev, selectedSegmentId: segmentId }));
+    setState((prev) => {
+      // Find the selected segment
+      const selectedSegment = segmentId ? prev.segments.find((s) => s.id === segmentId) : undefined;
+
+      // Set loop region to selected segment boundaries
+      const loopRegion = selectedSegment
+        ? { start: selectedSegment.start, end: selectedSegment.end }
+        : undefined;
+
+      return {
+        ...prev,
+        selectedSegmentId: segmentId,
+        playback: {
+          ...prev.playback,
+          loop: !!selectedSegment, // Enable loop when segment is selected
+          loopRegion,
+        },
+      };
+    });
   };
 
   /**
@@ -232,10 +250,27 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     newStart: number,
     newEnd: number
   ) => {
-    const updatedSegments = state.segments.map((seg) =>
-      seg.id === segmentId ? { ...seg, start: newStart, end: newEnd } : seg
-    );
-    handleSegmentsChange(updatedSegments);
+    setState((prev) => {
+      const updatedSegments = prev.segments.map((seg) =>
+        seg.id === segmentId ? { ...seg, start: newStart, end: newEnd } : seg
+      );
+
+      // If this is the selected segment, update loop region too
+      const loopRegion =
+        prev.selectedSegmentId === segmentId
+          ? { start: newStart, end: newEnd }
+          : prev.playback.loopRegion;
+
+      return {
+        ...prev,
+        segments: updatedSegments,
+        hasUnsavedChanges: true,
+        playback: {
+          ...prev.playback,
+          loopRegion,
+        },
+      };
+    });
   };
 
   /**

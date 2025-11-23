@@ -204,6 +204,17 @@
   min-width: 120px;
 }
 
+.loop-indicator {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--accent-color);
+  font-weight: 500;
+  padding: 4px 8px;
+  background: rgba(230, 150, 100, 0.1);
+  border-radius: 3px;
+  border: 1px solid rgba(230, 150, 100, 0.3);
+}
+
 .playback-controls label {
   display: flex;
   align-items: center;

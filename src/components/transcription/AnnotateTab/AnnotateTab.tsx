@@ -262,6 +262,11 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         <span className="time-display">
           {playback.currentTime.toFixed(1)}s / {playback.duration.toFixed(1)}s
         </span>
+        {playback.loop && playback.loopRegion && (
+          <span className="loop-indicator" title="Auto-looping selected segment">
+            🔁 Loop: {playback.loopRegion.start.toFixed(1)}s - {playback.loopRegion.end.toFixed(1)}s
+          </span>
+        )}
         <label>
           Speed:
           <select
