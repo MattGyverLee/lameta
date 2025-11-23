@@ -1,22 +1,24 @@
 # Lameta Transcription Tools Specification
 
-**Version:** 1.0
-**Date:** 2025-11-23
+**Version:** 1.1
+**Date:** 2025-11-23 (Updated)
 **Author:** Claude (based on SayMore and Prestige analysis)
 
 ---
 
 ## Executive Summary
 
-This specification outlines the design for integrated audio/video transcription and annotation tools for Lameta. The goal is to port and enhance SayMore's transcription capabilities while incorporating Prestige's multi-layer playback and video export features, all while keeping video visible during transcription (like ELAN).
+This specification outlines the design for integrated audio/video transcription and annotation tools for Lameta. The goal is to port and enhance SayMore's transcription capabilities while incorporating Prestige's multi-layer playback and video export features, using a two-tab interface that separates annotation work from preview/export.
 
 ### Key Objectives
 
-1. **Keep video on-screen** during transcription (unlike SayMore, which separates video from audio)
-2. **Port SayMore's segmentation tools** (auto-segmenter, manual segmentation, text annotation workflow)
-3. **Incorporate Prestige's multi-layer architecture** (WaveSurfer timelines, kings/princes audio mixing, FFmpeg export)
-4. **Use modern React hooks** instead of class components
-5. **Integrate with existing Lameta architecture** (react-player, ffmpeg, file management)
+1. **Two-tab interface**: "Annotate" tab for transcription work, "Preview" tab for playback/export
+2. **SayMore-inspired entry point**: Similar workflow to SayMore's annotation process
+3. **Port SayMore's segmentation tools** (auto-segmenter, manual segmentation, text annotation workflow)
+4. **Incorporate Prestige's multi-layer features** (WaveSurfer timelines, kings/princes audio mixing, FFmpeg export)
+5. **Modern Lameta design system** (clean, minimal UI using Lameta's color palette and components)
+6. **Use React hooks** instead of class components
+7. **Integrate with existing Lameta architecture** (react-player, ffmpeg, file management, react-tabs)
 
 ---
 
@@ -59,52 +61,101 @@ This specification outlines the design for integrated audio/video transcription 
 
 ## Architecture Overview
 
+### Two-Tab Interface
+
+The transcription interface is split into two tabs using Lameta's existing `react-tabs` component:
+
+**Tab 1: Annotate** (SayMore-inspired workflow)
+- Primary workspace for segmentation and text entry
+- Simple, focused interface for transcription work
+- Video + single waveform + annotation grid
+
+**Tab 2: Preview** (Prestige-inspired playback)
+- Multi-layer playback with volume mixing
+- Video export with burned-in subtitles
+- Review and sharing interface
+
+---
+
+### Annotate Tab Layout
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  TranscriptionView.tsx                       │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │          VideoPlayer + Subtitle Display              │   │
-│  │              (ReactPlayer component)                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         Multi-Track Waveform Viewer                  │   │
-│  │  ┌─────────────────────────────────────────────┐    │   │
-│  │  │  Track 0: Source Audio (WaveSurfer)         │    │   │
-│  │  │  [Regions showing segment boundaries]       │    │   │
-│  │  └─────────────────────────────────────────────┘    │   │
-│  │  ┌─────────────────────────────────────────────┐    │   │
-│  │  │  Track 1: Careful Speech (WaveSurfer)       │    │   │
-│  │  │  [Oral transcription recordings]            │    │   │
-│  │  └─────────────────────────────────────────────┘    │   │
-│  │  ┌─────────────────────────────────────────────┐    │   │
-│  │  │  Track 2: Oral Translation (WaveSurfer)     │    │   │
-│  │  │  [Oral translation recordings]              │    │   │
-│  │  └─────────────────────────────────────────────┘    │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │           Segmentation Toolbar                       │   │
-│  │  [Auto-segment] [Add] [Delete] [Merge] [Split]      │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         Annotation Table (Editable Grid)             │   │
-│  │  Time | Transcription | Translation | Careful | Oral │   │
-│  │  0:00 | Bonjour...   | Hello...     |   ▶     |  ▶  │   │
-│  │  0:05 | Comment...   | How...       |   ▶     |  ▶  │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │          Playback Controls + Export                  │   │
-│  │  [⏮] [⏯] [⏭] [🔁] Speed: [1x] Volume: [▓▓▓]       │   │
-│  │  [Export Video] [Export Audio] [Export SRT]          │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  Session File: ETR009.mp4                                    │
+│  ┌──────────────────┐ ┌──────────────────────────────────┐ │
+│  │   Annotate       │ │  Preview                         │ │  ← Tabs
+│  └──────────────────┘ └──────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │                                                         │ │
+│  │          [Video Player with Subtitles]                 │ │
+│  │              (ReactPlayer)                             │ │
+│  │                                                         │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Source Audio                                                │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Waveform with segment boundary regions]               │ │
+│  │ [Regions are draggable, color-coded by segment]        │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Auto-segment] [Add Boundary] [Delete] [Merge] [Split]│ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Time   │ Transcription      │ Translation    │ ♪ │ ♪  │ │
+│  ├────────┼───────────────────┼────────────────┼───┼────┤ │
+│  │ 0:00 ▶ │ Bonjour...        │ Hello...       │ ⏺ │ ⏺  │ │
+│  │ 0:05 ▶ │ Comment...        │ How are...     │ ⏺ │ ⏺  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  [⏮] [⏯] [⏭] [🔁] Speed: [1x▼] Loop: [3x▼]                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Preview Tab Layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Session File: ETR009.mp4                                    │
+│  ┌──────────────────┐ ┌──────────────────────────────────┐ │
+│  │   Annotate       │ │  Preview                         │ │  ← Tabs
+│  └──────────────────┘ └──────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │                                                         │ │
+│  │          [Video Player with Subtitles]                 │ │
+│  │              (ReactPlayer)                             │ │
+│  │                                                         │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Source Audio        Volume: ═════════●═ 90%    [ ] Mute    │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Waveform with playback regions]                       │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Careful Speech      Volume: ════●══════ 30%    [ ] Mute    │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Waveform with oral transcription clips]               │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Oral Translation    Volume: ════════════  0%    [✓] Mute    │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Empty - no recordings]                                │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  [⏮] [⏯] [⏭] Speed: [1x▼]  │  [Export Video▼]              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Key Design Principles:**
-1. **Video-first**: Video player at top, always visible
-2. **Visual segmentation**: Waveform regions show segment boundaries clearly
-3. **Inline editing**: Grid allows direct text entry for transcription/translation
-4. **Keyboard-driven**: F2 play/pause, Tab/Enter navigation (SayMore workflow)
-5. **Multi-track mixing**: Kings/Princes volume control for playback and export
+1. **Two-mode interface**: Separate annotation work from preview/sharing
+2. **SayMore-inspired entry**: Annotate tab follows SayMore's workflow
+3. **Lameta design language**: Clean, minimal UI with standard HTML elements
+4. **Color palette**: Use Lameta's CSS variables (session green: #cff09f)
+5. **Keyboard-driven**: F2 play/pause, Tab/Enter navigation (SayMore workflow)
+6. **Multi-track preview**: Preview tab for playback mixing and export
 
 ---
 
@@ -372,42 +423,123 @@ For each segment:
 
 ## Component Design
 
+### Entry Point Integration
+
+The transcription tools integrate into Lameta's existing file panel using the same pattern as other file types:
+
+**When user selects an audio/video file:**
+1. `FolderPane.tsx` detects media file type (.mp4, .wav, etc.)
+2. For files with `.eaf` annotation or manual "Annotate" button click
+3. Opens `TranscriptionView.tsx` component
+4. Similar to how SayMore opens annotation from file list
+
 ### React Component Hierarchy
 
 ```
-TranscriptionView.tsx (Main Container)
+TranscriptionView.tsx (Main Container - uses react-tabs)
 ├── useTranscriptionState.ts (Custom hook for state management)
-├── VideoPlayerSection.tsx
-│   ├── VideoPlayer.tsx (ReactPlayer wrapper)
-│   └── SubtitleOverlay.tsx
-├── WaveformSection.tsx
-│   ├── useWaveSurfer.ts (Custom hook for WaveSurfer management)
-│   ├── WaveformTrack.tsx (Reusable for 3 tracks)
-│   │   ├── WaveSurferCanvas (WaveSurfer.js instance)
-│   │   └── VolumeControl.tsx
-│   └── RegionManager.ts (Segment boundary logic)
-├── SegmentationToolbar.tsx
-│   ├── AutoSegmentButton.tsx
-│   ├── ManualSegmentButtons.tsx
-│   └── SegmentationSettings.tsx
-├── AnnotationGrid.tsx
-│   ├── useGridNavigation.ts (Keyboard handling)
-│   ├── AnnotationRow.tsx
-│   │   ├── TimeCell.tsx (Play button + time display)
-│   │   ├── TranscriptionCell.tsx (Editable text)
-│   │   ├── TranslationCell.tsx (Editable text)
-│   │   ├── CarefulSpeechCell.tsx (Record/Play buttons)
-│   │   └── OralTranslationCell.tsx (Record/Play buttons)
-│   └── GridContextMenu.tsx
-├── PlaybackControls.tsx
-│   ├── TransportControls.tsx (Play, pause, skip)
-│   ├── SpeedControl.tsx
-│   └── LoopControl.tsx
-└── ExportDialog.tsx
-    ├── ExportSettings.tsx
-    ├── ExportProgress.tsx
-    └── useVideoExport.ts (Export logic hook)
+├── Tabs (from react-tabs library)
+│   ├── Tab: "Annotate" (SayMore-inspired)
+│   │   ├── AnnotateTabPanel.tsx
+│   │   │   ├── VideoPlayerSection.tsx
+│   │   │   │   ├── VideoPlayer.tsx (ReactPlayer wrapper)
+│   │   │   │   └── SubtitleOverlay.tsx
+│   │   │   ├── WaveformSection.tsx (Single source waveform)
+│   │   │   │   ├── useWaveSurfer.ts (Custom hook)
+│   │   │   │   └── RegionManager.ts (Segment boundaries)
+│   │   │   ├── SegmentationToolbar.tsx
+│   │   │   │   ├── AutoSegmentButton.tsx
+│   │   │   │   ├── ManualSegmentButtons.tsx
+│   │   │   │   └── SegmentationSettings.tsx
+│   │   │   ├── AnnotationGrid.tsx
+│   │   │   │   ├── useGridNavigation.ts (Keyboard handling)
+│   │   │   │   ├── AnnotationRow.tsx
+│   │   │   │   │   ├── TimeCell.tsx (Play button + time)
+│   │   │   │   │   ├── TranscriptionCell.tsx (Editable text)
+│   │   │   │   │   ├── TranslationCell.tsx (Editable text)
+│   │   │   │   │   ├── CarefulSpeechCell.tsx (Record button)
+│   │   │   │   │   └── OralTranslationCell.tsx (Record button)
+│   │   │   │   └── GridContextMenu.tsx
+│   │   │   └── PlaybackControls.tsx
+│   │   │       ├── TransportControls.tsx (Play, pause, skip)
+│   │   │       ├── SpeedControl.tsx
+│   │   │       └── LoopControl.tsx
+│   │   │
+│   └── Tab: "Preview" (Prestige-inspired)
+│       ├── PreviewTabPanel.tsx
+│       │   ├── VideoPlayerSection.tsx (Shared component)
+│       │   │   └── VideoPlayer.tsx (ReactPlayer wrapper)
+│       │   ├── MultiTrackWaveformSection.tsx
+│       │   │   ├── WaveformTrack.tsx (×3, reusable component)
+│       │   │   │   ├── useWaveSurfer.ts (Custom hook)
+│       │   │   │   └── VolumeSlider.tsx (Native HTML range input)
+│       │   │   └── MuteCheckbox.tsx (Native HTML checkbox)
+│       │   ├── PlaybackControls.tsx (Shared component)
+│       │   └── ExportButton.tsx
+│       │       └── ExportDialog.tsx
+│       │           ├── ExportSettings.tsx
+│       │           ├── ExportProgress.tsx
+│       │           └── useVideoExport.ts (Export logic hook)
+└── RecordingDialog.tsx (Shared - opens as modal)
+    ├── RecordingControls.tsx
+    └── useMediaRecorder.ts
 ```
+
+### Lameta Design System Integration
+
+**CSS Variables (from `/src/colors.css`):**
+```css
+:root {
+  --session--color: #cff09f;           /* Light green for session items */
+  --accent-color: #e69664;             /* Orange accent */
+  --link--color: #216ba5;              /* Link blue */
+  --error-color: #dc322f;              /* Error red */
+  --pane__border--color: #abadb3;      /* Border gray */
+  --search-highlight: #ffba8a;         /* Highlight orange */
+}
+```
+
+**Component Styling:**
+- Use standard HTML elements (`<button>`, `<input>`, `<select>`)
+- Apply Lameta CSS classes where applicable
+- Use CSS modules for component-specific styles (e.g., `TranscriptionView.css`)
+- Volume sliders: Native HTML `<input type="range">` styled with CSS
+- No Material-UI, Ant Design, or other heavy UI libraries
+
+**Example Button Styling:**
+```tsx
+<button
+  className="lameta-button session-action"
+  onClick={handleAutoSegment}
+>
+  Auto-segment
+</button>
+```
+
+**Example Volume Slider:**
+```tsx
+<div className="volume-control">
+  <label>Source Audio</label>
+  <input
+    type="range"
+    min="0"
+    max="100"
+    value={volume}
+    onChange={(e) => setVolume(parseInt(e.target.value))}
+    className="volume-slider"
+  />
+  <span className="volume-value">{volume}%</span>
+</div>
+```
+
+**Color Usage:**
+- Segment regions on waveform: Use `--session--color` with alpha transparency
+- Active segment: Brighter version of session color
+- Buttons: Use existing Lameta button styles
+- Links: Use `--link--color`
+- Errors/warnings: Use `--error-color`
+
+---
 
 ### Key Custom Hooks
 
@@ -981,12 +1113,16 @@ This enables community members to:
 
 ## Appendix C: Mockups
 
-### Main Transcription Interface
+### Annotate Tab (SayMore-inspired)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Lameta - Session ETR009 - Transcription                          │
+│ Lameta - Session ETR009                                          │
 ├──────────────────────────────────────────────────────────────────┤
+│  File: ETR009.mp4                                                 │
+│  ┌──────────────────┐ ┌──────────────────────────────────┐       │
+│  │   Annotate       │ │  Preview                         │       │
+│  └──────────────────┘ └──────────────────────────────────┘       │
 │                                                                   │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                                                             │  │
@@ -994,56 +1130,146 @@ This enables community members to:
 │  │                                                             │  │
 │  │                                                             │  │
 │  │          Bonjour, comment allez-vous?                       │  │
-│  │          (Subtitle overlay - transcription or translation)  │  │
+│  │          (Subtitle overlay - transcription)                 │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                   │
-│  Source Audio    [▓▓▓▓▓▓▓▓▓░] 90%  Solo [  ] Mute [ ]           │
+│  Source Audio                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐│
-│  │ [Waveform with colored regions showing segment boundaries]  ││
-│  └──────────────────────────────────────────────────────────────┘│
-│                                                                   │
-│  Careful Speech  [▓▓▓░░░░░░░] 30%  Solo [  ] Mute [ ]           │
-│  ┌──────────────────────────────────────────────────────────────┐│
-│  │ [Waveform with regions for oral transcriptions]             ││
-│  └──────────────────────────────────────────────────────────────┘│
-│                                                                   │
-│  Oral Translation [░░░░░░░░░░]  0%  Solo [  ] Mute [✓]           │
-│  ┌──────────────────────────────────────────────────────────────┐│
-│  │ [Empty - no recordings yet]                                  ││
+│  │ [Waveform with green regions showing segment boundaries]    ││
+│  │ [Active segment highlighted, regions draggable]             ││
 │  └──────────────────────────────────────────────────────────────┘│
 │                                                                   │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │ [Auto-segment] [Add] [Delete] [Merge] [Split] │ Settings   │  │
+│  │ [Auto-segment] [Add Boundary] [Delete] [Merge] [Split]     │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                   │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ Time   │ Transcription        │ Translation      │ ♪ │ ♪  │  │
 │  ├────────┼─────────────────────┼──────────────────┼───┼────┤  │
-│  │ 0:00 ▶ │ Bonjour, comment... │ Hello, how...    │ ▶ │ ⏺  │  │
-│  │ 0:05 ▶ │ Je m'appelle...     │ My name is...    │ ▶ │ ⏺  │  │
-│  │ 0:12 ▶ │ Enchanté.           │ Nice to meet you │ ▶ │ ⏺  │  │
+│  │ 0:00 ▶ │ Bonjour, comment... │ Hello, how...    │ ⏺ │ ⏺  │  │
+│  │ 0:05 ▶ │ Je m'appelle...     │ My name is...    │ ⏺ │ ⏺  │  │
+│  │ 0:12 ▶ │ Enchanté.           │ Nice to meet you │ ⏺ │ ⏺  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                   │
-│  [⏮] [⏯] [⏭] Speed: [1x▼] Loop: [3x▼] | [Export ▼]             │
+│  [⏮] [⏯] [⏭] Speed: [1x▼] Loop: [3x▼]                           │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
+```
+
+### Preview Tab (Prestige-inspired)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Lameta - Session ETR009                                          │
+├──────────────────────────────────────────────────────────────────┤
+│  File: ETR009.mp4                                                 │
+│  ┌──────────────────┐ ┌──────────────────────────────────┐       │
+│  │   Annotate       │ │  Preview                         │       │
+│  └──────────────────┘ └──────────────────────────────────┘       │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                                                             │  │
+│  │          [Video Player - 16:9 aspect ratio]                │  │
+│  │                                                             │  │
+│  │                                                             │  │
+│  │          Bonjour, comment allez-vous?                       │  │
+│  │          (Subtitle overlay - showing selected track)        │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                   │
+│  Source Audio        Volume: ═════════●═ 90%    [ ] Mute         │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │ [Waveform with playback position indicator]                 ││
+│  └──────────────────────────────────────────────────────────────┘│
+│                                                                   │
+│  Careful Speech      Volume: ════●══════ 30%    [ ] Mute         │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │ [Waveform showing merged oral transcription clips]          ││
+│  └──────────────────────────────────────────────────────────────┘│
+│                                                                   │
+│  Oral Translation    Volume: ════════════  0%    [✓] Mute         │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │ [Empty - no recordings yet]                                  ││
+│  └──────────────────────────────────────────────────────────────┘│
+│                                                                   │
+│  Kings: Source Audio (90%)                                        │
+│  Princes: Careful Speech (30%)                                    │
+│  Silent: Oral Translation (muted)                                 │
+│                                                                   │
+│  [⏮] [⏯] [⏭] Speed: [1x▼]  │  [Export Video ▼]                  │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Export Dialog (Lameta-styled)
+
+```
+┌─────────────────────────────────────────┐
+│         Export Video                    │
+├─────────────────────────────────────────┤
+│                                         │
+│ Format:       [MP4             ▼]       │
+│ Quality:      [High (1080p)    ▼]       │
+│                                         │
+│ Audio Mix (based on current volumes):  │
+│   ☑ Source audio at 90% (King)         │
+│   ☑ Careful speech at 30% (Prince)     │
+│   ☐ Oral translation (muted)           │
+│                                         │
+│ Subtitles:                              │
+│   ◉ Burn transcription into video      │
+│   ○ Burn translation into video        │
+│   ○ Separate SRT file only             │
+│   ○ No subtitles                       │
+│                                         │
+│ Playback Speed: [1x ▼]                 │
+│                                         │
+│ Output folder:                          │
+│ [C:\Users\...\ETR009]  [Browse...]     │
+│                                         │
+│   [Cancel]              [Export]        │
+└─────────────────────────────────────────┘
 ```
 
 ---
 
 ## Conclusion
 
-This specification combines the best features of SayMore's transcription workflow with Prestige's video-centric multi-layer architecture, addressing the key limitation of SayMore (video separation) while maintaining its excellent keyboard-driven efficiency.
+This specification combines the best features of SayMore's transcription workflow with Prestige's video-centric multi-layer architecture, using a **two-tab interface** that separates annotation work from preview/export. This design addresses SayMore's key limitation (video separation) while maintaining its excellent keyboard-driven efficiency.
 
-By implementing these features in Lameta using modern React hooks and the existing technology stack (react-player, ffmpeg, electron), we create a powerful language documentation tool that:
+### Key Features
+
+**Annotate Tab (Work Mode):**
+- SayMore-inspired entry point and workflow
+- Video visible with single source waveform
+- Focus on transcription and text entry
+- Clean, distraction-free interface
+- Keyboard shortcuts for speed (F2, Tab, Enter)
+
+**Preview Tab (Review/Share Mode):**
+- Prestige-inspired multi-track playback
+- Volume mixing with kings/princes categorization
+- Video export with burned-in subtitles
+- Professional output for community sharing
+
+### Technical Approach
+
+By implementing these features using:
+- **Modern React hooks** (functional components throughout)
+- **Lameta's design system** (clean, minimal UI with CSS variables)
+- **Existing tech stack** (react-player, react-tabs, ffmpeg, electron)
+- **Standard HTML elements** (no heavy UI libraries)
+
+We create a powerful language documentation tool that:
 
 1. **Keeps video visible** during all transcription work (ELAN-like interface)
 2. **Provides efficient keyboard workflow** (SayMore's Tab/Enter/F2 shortcuts)
-3. **Enables multi-layer playback** (Prestige's WaveSurfer + kings/princes mixing)
-4. **Exports high-quality videos** (Prestige's FFmpeg export with subtitle burning)
-5. **Integrates with ELAN ecosystem** (read/write .eaf format)
+3. **Separates work from preview** (focused annotation vs. multi-layer playback)
+4. **Uses Lameta's clean design** (familiar, consistent with existing UI)
+5. **Enables multi-layer playback** (Prestige's WaveSurfer + kings/princes mixing)
+6. **Exports high-quality videos** (Prestige's FFmpeg export with subtitle burning)
+7. **Integrates with ELAN ecosystem** (read/write .eaf format)
 
-The phased implementation plan allows for incremental development and user feedback, with each phase delivering tangible value.
+The phased implementation plan allows for incremental development and user feedback, with each phase delivering tangible value. The two-tab design provides flexibility for different user workflows while maintaining a cohesive, Lameta-native experience.
 
 ---
 
