@@ -78,27 +78,77 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
   const [readyStates, setReadyStates] = useState<boolean[]>(new Array(tracks.length).fill(false));
 
   /**
-   * Calculate effective playback rate for a track based on kings/princes logic
+   * Calculate effective playback rate for a track (Prestige algorithm)
+   *
+   * Kings & Princes logic:
+   * - King: Plays at base playback rate, determines segment duration
+   * - Prince: Time-stretches/compresses to match king's duration
+   *   - If prince is SHORTER than king → plays SLOWER (time-stretched)
+   *   - If prince is LONGER than king → plays FASTER (time-compressed)
+   *
+   * Formula: princeSpeed = princeDuration / (kingDuration / playbackRate)
+   *
+   * This ensures all tracks end simultaneously at segment boundaries.
    */
   const getEffectivePlaybackRate = (track: AudioTrack, trackIndex: number): number => {
-    // If track is muted, rate doesn't matter
     if (track.muted) return playbackRate;
 
-    // All Kings mode: everything plays at normal speed
+    // All Kings mode: everything plays at base speed
     if (!kingsPrincesMode.useKingsPrincesLogic) {
       return playbackRate;
     }
 
-    // Kings & Princes mode: check volume threshold
+    // Check if this track is a king
     const isKing = track.volume >= kingsPrincesMode.kingThreshold;
 
     if (isKing) {
-      // Kings play at normal speed
+      // Kings play at base playback rate
       return playbackRate;
     } else {
-      // Princes play slower (Prestige uses 0.75x for princes)
-      // This allows users to hear the careful speech more clearly
-      return playbackRate * 0.75;
+      // Prince: adjust speed to match king's play duration
+      // Get this prince's audio duration
+      const princeWs = wavesurferRefs.current[trackIndex];
+      if (!princeWs || !readyStates[trackIndex]) {
+        // Not ready yet, use base rate temporarily
+        return playbackRate;
+      }
+
+      const princeDuration = princeWs.getDuration();
+      if (!princeDuration || princeDuration === 0) {
+        return playbackRate;
+      }
+
+      // Find the king track and get its duration
+      let kingDuration = 0;
+
+      // Priority: source (0), careful (1), translation (2)
+      for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
+        if (!t.muted && t.volume >= kingsPrincesMode.kingThreshold) {
+          const kingWs = wavesurferRefs.current[i];
+          if (kingWs && readyStates[i]) {
+            kingDuration = kingWs.getDuration();
+            break;
+          }
+        }
+      }
+
+      if (kingDuration === 0) {
+        // No king found, prince plays at base rate
+        return playbackRate;
+      }
+
+      // Calculate how long the king will take to play at its speed
+      const kingPlayDuration = kingDuration / playbackRate;
+
+      // Calculate prince speed to end at same time as king
+      // From Prestige: A2Speed = (A2Stop - A2Start) / kingLen
+      const princeSpeed = princeDuration / kingPlayDuration;
+
+      // Examples:
+      // - Prince 3s, king plays for 10s: 3/10 = 0.3x (stretched, slower)
+      // - Prince 15s, king plays for 10s: 15/10 = 1.5x (compressed, faster)
+      return princeSpeed;
     }
   };
 
