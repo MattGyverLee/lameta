@@ -6,6 +6,7 @@
 import React from "react";
 import "./AnnotateTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
+import WaveformSection from "../shared/WaveformSection";
 import {
   AnnotationSegment,
   PlaybackState,
@@ -100,12 +101,15 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
       </div>
 
       {/* Waveform Section */}
-      <div className="waveform-section">
-        <div className="waveform-placeholder">
-          <p>Waveform Visualization (WaveSurfer.js)</p>
-          <p>Segments: {segments.length}</p>
-          <p>Selected: {selectedSegmentId || "None"}</p>
-        </div>
+      <div className="waveform-wrapper">
+        <WaveformSection
+          audioUrl={mediaFilePath}
+          segments={segments}
+          selectedSegmentId={selectedSegmentId}
+          currentTime={playback.currentTime}
+          onSegmentClick={handleSegmentClick}
+          onSegmentBoundaryChange={onSegmentBoundaryChange}
+        />
       </div>
 
       {/* Annotation Grid Section */}

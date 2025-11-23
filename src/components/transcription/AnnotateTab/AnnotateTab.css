@@ -72,12 +72,10 @@
   font-weight: bold;
 }
 
-/* Waveform Section */
-.waveform-section {
-  flex: 0 0 150px;
-  background: #f5f5f5;
-  border: 1px solid var(--pane__border--color);
-  border-radius: 4px;
+/* Waveform Wrapper */
+.waveform-wrapper {
+  flex: 0 0 auto;
+  min-height: 150px;
 }
 
 .waveform-placeholder {

@@ -1,0 +1,123 @@
+/**
+ * WaveformSection Styles
+ */
+
+.waveform-section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: white;
+  border: 1px solid var(--pane__border--color);
+  border-radius: 4px;
+}
+
+/* Toolbar */
+.waveform-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--pane__interstitial--color);
+  border-bottom: 1px solid var(--pane__border--color);
+}
+
+.waveform-info {
+  flex: 1;
+}
+
+.waveform-status {
+  font-size: 12px;
+  color: #666;
+}
+
+.waveform-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.zoom-btn {
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--pane__border--color);
+  background: white;
+  cursor: pointer;
+  border-radius: 3px;
+  min-width: 32px;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: var(--session--color);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Waveform Container */
+.waveform-container {
+  position: relative;
+  width: 100%;
+  background: #fafafa;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.waveform-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 128px;
+  color: #999;
+  font-size: 14px;
+}
+
+.waveform-placeholder p {
+  margin: 4px 0;
+}
+
+.waveform-placeholder-detail {
+  font-size: 12px;
+  color: #bbb;
+}
+
+/* Segment Info */
+.segment-info {
+  padding: 8px 12px;
+  background: var(--session__selected--color);
+  border-top: 1px solid var(--pane__border--color);
+}
+
+.segment-info-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.segment-info-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.segment-info-time {
+  font-family: monospace;
+  color: #666;
+}
+
+.segment-info-duration {
+  font-family: monospace;
+  color: #999;
+  font-size: 12px;
+}
+
+/* WaveSurfer overrides (when implemented) */
+.waveform-container wave {
+  overflow: visible !important;
+}
+
+.waveform-container canvas {
+  border-radius: 2px;
+}
