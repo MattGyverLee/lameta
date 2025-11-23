@@ -3,14 +3,16 @@
  * Provides video playback, waveform, segmentation tools, and annotation grid
  */
 
-import React from "react";
+import React, { useState } from "react";
 import "./AnnotateTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
 import WaveformSection from "../shared/WaveformSection";
 import useKeyboardShortcuts from "../shared/useKeyboardShortcuts";
+import RecordingDialog from "../shared/RecordingDialog";
 import {
   AnnotationSegment,
   PlaybackState,
+  OralAnnotationType,
 } from "../shared/types";
 
 /**
@@ -35,6 +37,7 @@ interface AnnotateTabProps {
   onSplitSegment: () => void;
   onMergeSegments: () => void;
   onSave: () => void;
+  onSaveRecording: (segmentId: string, recordingType: OralAnnotationType, audioBlob: Blob) => void;
 }
 
 /**
@@ -58,12 +61,46 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   onSplitSegment,
   onMergeSegments,
   onSave,
+  onSaveRecording,
 }) => {
+  // Recording dialog state
+  const [recordingDialog, setRecordingDialog] = useState<{
+    isOpen: boolean;
+    segmentId: string;
+    recordingType: OralAnnotationType;
+  }>({
+    isOpen: false,
+    segmentId: "",
+    recordingType: OralAnnotationType.CarefulSpeech,
+  });
+
   /**
    * Handle segment click from waveform
    */
   const handleSegmentClick = (segmentId: string) => {
     onSegmentSelect(segmentId);
+  };
+
+  /**
+   * Open recording dialog
+   */
+  const handleOpenRecording = (segmentId: string, recordingType: OralAnnotationType) => {
+    setRecordingDialog({
+      isOpen: true,
+      segmentId,
+      recordingType,
+    });
+  };
+
+  /**
+   * Close recording dialog
+   */
+  const handleCloseRecording = () => {
+    setRecordingDialog({
+      isOpen: false,
+      segmentId: "",
+      recordingType: OralAnnotationType.CarefulSpeech,
+    });
   };
 
   /**
@@ -244,7 +281,14 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
                   />
                 </td>
                 <td className="audio-buttons">
-                  <button className="btn-record" title="Record careful speech">
+                  <button
+                    className="btn-record"
+                    title="Record careful speech"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenRecording(segment.id, OralAnnotationType.CarefulSpeech);
+                    }}
+                  >
                     🎤
                   </button>
                 </td>
@@ -281,6 +325,18 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           </select>
         </label>
       </div>
+
+      {/* Recording Dialog */}
+      <RecordingDialog
+        segmentId={recordingDialog.segmentId}
+        segmentText={
+          segments.find((s) => s.id === recordingDialog.segmentId)?.text || ""
+        }
+        recordingType={recordingDialog.recordingType}
+        isOpen={recordingDialog.isOpen}
+        onSave={onSaveRecording}
+        onClose={handleCloseRecording}
+      />
     </div>
   );
 };

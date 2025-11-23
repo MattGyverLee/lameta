@@ -1,0 +1,270 @@
+/**
+ * RecordingDialog Styles
+ * In-app audio recording interface
+ */
+
+.recording-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.recording-dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Header */
+.recording-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid var(--pane__border--color);
+  padding-bottom: 12px;
+}
+
+.recording-dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.btn-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+/* Segment Reference */
+.segment-reference {
+  padding: 12px;
+  background: var(--pane__interstitial--color);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.segment-reference strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.segment-reference p {
+  margin: 0;
+  color: #666;
+}
+
+.segment-reference em {
+  color: #999;
+}
+
+/* Error Message */
+.error-message {
+  padding: 12px;
+  background: #fee;
+  border: 1px solid var(--error-color);
+  border-radius: 4px;
+  color: var(--error-color);
+  font-size: 14px;
+}
+
+/* Recording Controls */
+.recording-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.recording-controls button {
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-start-recording {
+  background: var(--session--color);
+  color: #333;
+}
+
+.btn-start-recording:hover {
+  background: #c2dd8f;
+}
+
+.btn-pause-recording {
+  background: #ffc107;
+  color: #333;
+}
+
+.btn-pause-recording:hover {
+  background: #e0a800;
+}
+
+.btn-resume-recording {
+  background: var(--accent-color);
+  color: white;
+}
+
+.btn-resume-recording:hover {
+  background: #d68554;
+}
+
+.btn-stop-recording {
+  background: var(--error-color);
+  color: white;
+}
+
+.btn-stop-recording:hover {
+  background: #c41e1c;
+}
+
+.btn-reset-recording {
+  background: var(--link--color);
+  color: white;
+}
+
+.btn-reset-recording:hover {
+  background: #1a5685;
+}
+
+/* Recording Time */
+.recording-time {
+  text-align: center;
+  font-size: 24px;
+  font-family: monospace;
+  color: #333;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.recording-time strong {
+  font-size: 14px;
+  display: block;
+  margin-bottom: 4px;
+  font-family: sans-serif;
+}
+
+/* Recording Indicator */
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--error-color);
+}
+
+.recording-dot {
+  width: 12px;
+  height: 12px;
+  background: var(--error-color);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+/* Audio Playback */
+.audio-playback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.audio-playback strong {
+  font-size: 14px;
+  color: #333;
+}
+
+.audio-playback audio {
+  width: 100%;
+}
+
+/* Dialog Actions */
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--pane__border--color);
+}
+
+.dialog-actions button {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--pane__border--color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: white;
+  color: #333;
+}
+
+.btn-cancel:hover {
+  background: #f0f0f0;
+}
+
+.btn-save {
+  background: var(--session--color);
+  color: #333;
+  border-color: var(--session--color);
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #c2dd8f;
+}
+
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

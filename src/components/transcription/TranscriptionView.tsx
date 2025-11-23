@@ -9,6 +9,8 @@ import "react-tabs/style/react-tabs.css";
 import "./TranscriptionView.css";
 import * as ElanFileHandler from "../../model/file/ElanFileHandler";
 import * as AutoSegmenter from "./shared/AutoSegmenter";
+import fs from "fs";
+import path from "path";
 
 import AnnotateTab from "./AnnotateTab/AnnotateTab";
 import PreviewTab from "./PreviewTab/PreviewTab";
@@ -18,6 +20,7 @@ import {
   AnnotationSegment,
   PlaybackState,
   SegmentationSettings,
+  OralAnnotationType,
 } from "./shared/types";
 
 /**
@@ -404,6 +407,62 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     handleSegmentsChange(updatedSegments);
   };
 
+  /**
+   * Save oral annotation recording to _Annotations folder
+   */
+  const handleSaveRecording = async (
+    segmentId: string,
+    recordingType: OralAnnotationType,
+    audioBlob: Blob
+  ) => {
+    try {
+      // Get media file directory
+      const mediaDir = path.dirname(state.mediaFilePath);
+      const mediaBaseName = path.basename(state.mediaFilePath, path.extname(state.mediaFilePath));
+
+      // Create _Annotations folder if it doesn't exist
+      const annotationsDir = path.join(mediaDir, `${mediaBaseName}_Annotations`);
+      if (!fs.existsSync(annotationsDir)) {
+        fs.mkdirSync(annotationsDir, { recursive: true });
+      }
+
+      // Generate filename based on segment and recording type
+      const segment = state.segments.find((s) => s.id === segmentId);
+      if (!segment) return;
+
+      const segmentIndex = state.segments.indexOf(segment);
+      const recordingTypeLabel = recordingType === OralAnnotationType.CarefulSpeech ? "careful" : "translation";
+      const filename = `${mediaBaseName}_seg${segmentIndex + 1}_${recordingTypeLabel}.webm`;
+      const filePath = path.join(annotationsDir, filename);
+
+      // Convert blob to buffer and save
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      fs.writeFileSync(filePath, buffer);
+
+      console.log(`Saved recording to: ${filePath}`);
+
+      // Update segment with file path
+      const updatedSegments = state.segments.map((seg) =>
+        seg.id === segmentId
+          ? {
+              ...seg,
+              [recordingType === OralAnnotationType.CarefulSpeech
+                ? "carefulSpeechFile"
+                : "oralTranslationFile"]: filePath,
+            }
+          : seg
+      );
+
+      handleSegmentsChange(updatedSegments);
+
+      // Trigger save of ELAN file to update with new file references
+      await saveEafFile();
+    } catch (error) {
+      console.error("Failed to save recording:", error);
+    }
+  };
+
   return (
     <div className="transcription-view">
       {/* Header */}
@@ -458,6 +517,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
             onSplitSegment={handleSplitSegment}
             onMergeSegments={handleMergeSegments}
             onSave={saveEafFile}
+            onSaveRecording={handleSaveRecording}
             isSegmenting={state.isSegmenting}
           />
         </TabPanel>

@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import "./PreviewTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
 import MultiTrackWaveform, { KingsPrincesMode } from "./MultiTrackWaveform";
+import ExportDialog, { ExportSettings } from "./ExportDialog";
 import {
   AnnotationSegment,
   AudioTrack,
@@ -73,6 +74,9 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     kingThreshold: 84, // 84% volume threshold
   });
 
+  // Export dialog state
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+
   /**
    * Update track volume by index
    */
@@ -114,9 +118,21 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   /**
    * Open export dialog
    */
-  const handleExport = () => {
-    console.log("Opening export dialog...");
-    // TODO: Implement export dialog
+  const handleOpenExport = () => {
+    setExportDialogOpen(true);
+  };
+
+  /**
+   * Handle export
+   */
+  const handleExport = (settings: ExportSettings) => {
+    console.log("Starting export with settings:", settings);
+    console.log("Kings/Princes mode:", kingsPrincesMode);
+    console.log("Segments:", segments);
+    console.log("Tracks:", tracks);
+    // TODO: Implement FFmpeg export via Electron main process
+    // This will be handled by a separate service that communicates with FFmpeg
+    alert("Export functionality requires FFmpeg integration via Electron main process. Implementation placeholder.");
   };
 
   /**
@@ -168,7 +184,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
       {/* Export Section */}
       <div className="export-section">
-        <button onClick={handleExport} className="btn-export">
+        <button onClick={handleOpenExport} className="btn-export">
           Export Video/Audio
         </button>
         <p className="export-help">
@@ -176,6 +192,17 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
           FFmpeg.
         </p>
       </div>
+
+      {/* Export Dialog */}
+      <ExportDialog
+        isOpen={exportDialogOpen}
+        mediaFilePath={mediaFilePath}
+        segments={segments}
+        tracks={tracks}
+        kingsPrincesMode={kingsPrincesMode}
+        onExport={handleExport}
+        onClose={() => setExportDialogOpen(false)}
+      />
 
       {/* Playback Controls */}
       <div className="playback-controls">
