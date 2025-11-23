@@ -21,9 +21,50 @@
   - `/PreviewTab/` - Prestige-inspired playback and export
   - `/shared/` - Shared components (VideoPlayer, PlaybackControls)
 
+✅ **Dependencies**
+- WaveSurfer.js ^7.8.0 added to package.json
+- xml2js already present (for ELAN file parsing)
+- react-tabs, react-player, fluent-ffmpeg already present
+
+✅ **TypeScript type definitions** (`shared/types.ts`)
+- AnnotationSegment, TranscriptionState interfaces
+- PlaybackState, AudioTrack interfaces
+- SegmentationSettings, ExportSettings interfaces
+- KingsPrincesConfig for multi-track logic
+- Component props interfaces
+
+✅ **TranscriptionView main component** (`TranscriptionView.tsx`)
+- Two-tab layout using react-tabs
+- State management with React hooks
+- Auto-save logic (30-second debounce)
+- Mock segment data for testing
+- Event handlers for segments, playback, updates
+
+✅ **AnnotateTab component** (`AnnotateTab/AnnotateTab.tsx`)
+- Video player section placeholder
+- Segmentation toolbar (auto-segment, add, delete, split, merge)
+- Waveform section placeholder
+- Editable annotation grid (transcription + translation fields)
+- Playback controls
+
+✅ **PreviewTab component** (`PreviewTab/PreviewTab.tsx`)
+- Video player section placeholder
+- Multi-track waveform placeholders (3 tracks)
+- Volume controls with sliders
+- Kings/Princes categorization (84% threshold)
+- Export button placeholder
+- Playback controls
+
+✅ **CSS styling** with Lameta design system
+- TranscriptionView.css: Main container and tab styling
+- AnnotateTab.css: Grid, toolbar, waveform placeholders
+- PreviewTab.css: Multi-track layout, volume sliders
+
 ### In Progress
-🔄 **Dependencies**
-- WaveSurfer.js installation (running with --legacy-peer-deps due to MUI version conflict)
+🔄 **Next immediate tasks**
+- Install WaveSurfer.js dependency (npm registry was down, retry needed)
+- Create VideoPlayerSection shared component with ReactPlayer
+- Add entry point in FolderPane for media files
 
 ### Next Steps
 
@@ -141,17 +182,17 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 ### Phase 1: Foundation (Weeks 1-2) - CURRENT PHASE
 
 #### Week 1: Basic UI Structure
-- [ ] Install WaveSurfer.js
-- [ ] Create TranscriptionView.tsx with two-tab layout
-- [ ] Create AnnotateTab.tsx scaffold
-- [ ] Create PreviewTab.tsx scaffold
-- [ ] Create VideoPlayerSection.tsx (shared)
+- [x] Install WaveSurfer.js (added to package.json, pending npm install)
+- [x] Create TranscriptionView.tsx with two-tab layout
+- [x] Create AnnotateTab.tsx scaffold
+- [x] Create PreviewTab.tsx scaffold
+- [ ] Create VideoPlayerSection.tsx (shared) - NEXT
 - [ ] Create PlaybackControls.tsx (shared)
-- [ ] Add TranscriptionView.css with Lameta design system
+- [x] Add TranscriptionView.css with Lameta design system
 - [ ] Add entry point in FolderPane.tsx for media files
 
 #### Week 2: Data Model & Basic Functionality
-- [ ] Create types.ts with AnnotationSegment interface
+- [x] Create types.ts with AnnotationSegment interface (COMPLETED)
 - [ ] Create useTranscriptionState.ts hook
 - [ ] Create useWaveSurfer.ts hook
 - [ ] Implement basic segment data (hardcoded for testing)
