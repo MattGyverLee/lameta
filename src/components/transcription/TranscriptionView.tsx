@@ -8,6 +8,7 @@ import { Tab, Tabs, TabList, TabPanel } from "react-tabs";
 import "react-tabs/style/react-tabs.css";
 import "./TranscriptionView.css";
 import * as ElanFileHandler from "../../model/file/ElanFileHandler";
+import * as AutoSegmenter from "./shared/AutoSegmenter";
 
 import AnnotateTab from "./AnnotateTab/AnnotateTab";
 import PreviewTab from "./PreviewTab/PreviewTab";
@@ -239,10 +240,29 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
   /**
    * Start auto-segmentation
    */
-  const handleStartSegmentation = () => {
+  const handleStartSegmentation = async () => {
     setState((prev) => ({ ...prev, isSegmenting: true }));
-    // TODO: Implement Web Audio API segmentation in Web Worker
-    console.log("Starting auto-segmentation...");
+
+    try {
+      console.log("Starting auto-segmentation...");
+      const segments = await AutoSegmenter.autoSegmentMediaFile(
+        state.mediaFilePath,
+        state.segmentationSettings
+      );
+
+      // Update state with new segments
+      setState((prev) => ({
+        ...prev,
+        segments,
+        isSegmenting: false,
+        hasUnsavedChanges: true,
+      }));
+
+      console.log(`Auto-segmentation complete: ${segments.length} segments created`);
+    } catch (error) {
+      console.error("Auto-segmentation failed:", error);
+      setState((prev) => ({ ...prev, isSegmenting: false }));
+    }
   };
 
   /**
