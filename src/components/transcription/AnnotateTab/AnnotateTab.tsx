@@ -29,6 +29,10 @@ interface AnnotateTabProps {
   onProgress: (currentTime: number) => void;
   onDuration: (duration: number) => void;
   onStartSegmentation: () => void;
+  onAddSegment: () => void;
+  onDeleteSegment: () => void;
+  onSplitSegment: () => void;
+  onMergeSegments: () => void;
 }
 
 /**
@@ -47,6 +51,10 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   onProgress,
   onDuration,
   onStartSegmentation,
+  onAddSegment,
+  onDeleteSegment,
+  onSplitSegment,
+  onMergeSegments,
 }) => {
   /**
    * Handle segment click from waveform
@@ -88,14 +96,28 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         >
           {isSegmenting ? "Segmenting..." : "Auto-Segment"}
         </button>
-        <button className="btn-add-segment">Add Segment</button>
-        <button className="btn-delete-segment" disabled={!selectedSegmentId}>
+        <button onClick={onAddSegment} className="btn-add-segment">
+          Add Segment
+        </button>
+        <button
+          onClick={onDeleteSegment}
+          disabled={!selectedSegmentId}
+          className="btn-delete-segment"
+        >
           Delete Segment
         </button>
-        <button className="btn-split-segment" disabled={!selectedSegmentId}>
+        <button
+          onClick={onSplitSegment}
+          disabled={!selectedSegmentId}
+          className="btn-split-segment"
+        >
           Split Segment
         </button>
-        <button className="btn-merge-segments" disabled={!selectedSegmentId}>
+        <button
+          onClick={onMergeSegments}
+          disabled={!selectedSegmentId}
+          className="btn-merge-segments"
+        >
           Merge Segments
         </button>
       </div>

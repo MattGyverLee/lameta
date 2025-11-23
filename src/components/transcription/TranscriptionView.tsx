@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Tab, Tabs, TabList, TabPanel } from "react-tabs";
 import "react-tabs/style/react-tabs.css";
 import "./TranscriptionView.css";
+import * as ElanFileHandler from "../../model/file/ElanFileHandler";
 
 import AnnotateTab from "./AnnotateTab/AnnotateTab";
 import PreviewTab from "./PreviewTab/PreviewTab";
@@ -117,21 +118,36 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
 
   /**
    * Load ELAN .eaf file
-   * TODO: Implement actual ELAN file parsing using xml2js
    */
   const loadEafFile = async (filePath: string) => {
-    console.log(`Loading ELAN file: ${filePath}`);
-    // TODO: Parse ELAN XML file and populate segments
+    try {
+      console.log(`Loading ELAN file: ${filePath}`);
+      const segments = await ElanFileHandler.loadElanFile(filePath);
+      setState((prev) => ({
+        ...prev,
+        segments,
+        hasUnsavedChanges: false,
+      }));
+      console.log(`Loaded ${segments.length} segments from ELAN file`);
+    } catch (error) {
+      console.error("Failed to load ELAN file:", error);
+      // Keep using mock segments if load fails
+    }
   };
 
   /**
    * Save to ELAN .eaf file
-   * TODO: Implement actual ELAN file writing
    */
   const saveEafFile = async () => {
-    console.log("Auto-saving ELAN file...");
-    // TODO: Write segments to ELAN XML format
-    setState((prev) => ({ ...prev, hasUnsavedChanges: false }));
+    try {
+      const eafPath = state.eafFilePath || ElanFileHandler.getElanFilePath(state.mediaFilePath);
+      console.log(`Saving ELAN file: ${eafPath}`);
+      await ElanFileHandler.saveElanFile(eafPath, state.segments, state.mediaFilePath);
+      setState((prev) => ({ ...prev, hasUnsavedChanges: false, eafFilePath: eafPath }));
+      console.log("ELAN file saved successfully");
+    } catch (error) {
+      console.error("Failed to save ELAN file:", error);
+    }
   };
 
   /**
@@ -229,6 +245,109 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     console.log("Starting auto-segmentation...");
   };
 
+  /**
+   * Add a new segment at current playback time
+   */
+  const handleAddSegment = () => {
+    const currentTime = state.playback.currentTime;
+    const duration = state.playback.duration;
+    const newSegmentId = `seg-${Date.now()}`;
+
+    // Default new segment: 3 seconds from current time
+    const newSegment: AnnotationSegment = {
+      id: newSegmentId,
+      start: currentTime,
+      end: Math.min(currentTime + 3, duration),
+      text: "",
+      translation: "",
+    };
+
+    const updatedSegments = [...state.segments, newSegment].sort((a, b) => a.start - b.start);
+    handleSegmentsChange(updatedSegments);
+    handleSegmentSelect(newSegmentId);
+  };
+
+  /**
+   * Delete the currently selected segment
+   */
+  const handleDeleteSegment = () => {
+    if (!state.selectedSegmentId) return;
+
+    const updatedSegments = state.segments.filter((seg) => seg.id !== state.selectedSegmentId);
+    handleSegmentsChange(updatedSegments);
+    handleSegmentSelect(undefined);
+  };
+
+  /**
+   * Split the currently selected segment at current playback time
+   */
+  const handleSplitSegment = () => {
+    if (!state.selectedSegmentId) return;
+
+    const currentTime = state.playback.currentTime;
+    const selectedSegment = state.segments.find((seg) => seg.id === state.selectedSegmentId);
+
+    if (!selectedSegment) return;
+
+    // Only split if current time is within the segment
+    if (currentTime <= selectedSegment.start || currentTime >= selectedSegment.end) {
+      console.warn("Current time is not within the selected segment");
+      return;
+    }
+
+    // Create two new segments
+    const newSegmentId = `seg-${Date.now()}`;
+    const firstPart: AnnotationSegment = {
+      ...selectedSegment,
+      end: currentTime,
+    };
+    const secondPart: AnnotationSegment = {
+      id: newSegmentId,
+      start: currentTime,
+      end: selectedSegment.end,
+      text: "",
+      translation: "",
+    };
+
+    const updatedSegments = state.segments
+      .map((seg) => (seg.id === state.selectedSegmentId ? firstPart : seg))
+      .concat(secondPart)
+      .sort((a, b) => a.start - b.start);
+
+    handleSegmentsChange(updatedSegments);
+    handleSegmentSelect(newSegmentId);
+  };
+
+  /**
+   * Merge the currently selected segment with the next segment
+   */
+  const handleMergeSegments = () => {
+    if (!state.selectedSegmentId) return;
+
+    const currentIndex = state.segments.findIndex((seg) => seg.id === state.selectedSegmentId);
+    if (currentIndex === -1 || currentIndex === state.segments.length - 1) {
+      console.warn("Cannot merge: no next segment");
+      return;
+    }
+
+    const currentSegment = state.segments[currentIndex];
+    const nextSegment = state.segments[currentIndex + 1];
+
+    // Merge into a single segment
+    const mergedSegment: AnnotationSegment = {
+      ...currentSegment,
+      end: nextSegment.end,
+      text: `${currentSegment.text} ${nextSegment.text}`.trim(),
+      translation: `${currentSegment.translation || ""} ${nextSegment.translation || ""}`.trim(),
+    };
+
+    const updatedSegments = state.segments
+      .filter((seg) => seg.id !== nextSegment.id)
+      .map((seg) => (seg.id === currentSegment.id ? mergedSegment : seg));
+
+    handleSegmentsChange(updatedSegments);
+  };
+
   return (
     <div className="transcription-view">
       {/* Header */}
@@ -278,6 +397,10 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
             onProgress={handleProgress}
             onDuration={handleDuration}
             onStartSegmentation={handleStartSegmentation}
+            onAddSegment={handleAddSegment}
+            onDeleteSegment={handleDeleteSegment}
+            onSplitSegment={handleSplitSegment}
+            onMergeSegments={handleMergeSegments}
             isSegmenting={state.isSegmenting}
           />
         </TabPanel>
