@@ -287,13 +287,34 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   const kings = tracks.filter((t) => !t.muted && t.isKing);
   const princes = tracks.filter((t) => !t.muted && !t.isKing && t.volume > 0);
 
+  /**
+   * Video playback synchronization (Prestige-style)
+   *
+   * The video plays at the same rate as king tracks, ensuring it reaches
+   * segment boundaries at the same time the dominant audio does.
+   *
+   * Playback rates:
+   * - Kings (≥84% volume): Play at base playback rate (from selector)
+   * - Princes (<84% volume): Play at 0.75x of base rate
+   * - Video: Plays at base rate (matches kings)
+   *
+   * This matches Prestige's algorithm where:
+   *   V1Speed = (segment.end - segment.start) / kingLen
+   *   where kingLen = segmentDuration / kingPlaybackRate
+   *   → V1Speed = kingPlaybackRate
+   *
+   * Result: Video and king audio reach segment milestones simultaneously,
+   * while prince tracks play slower in the background.
+   */
+  const videoPlayback = playback; // Video syncs with kings at base rate
+
   return (
     <div className="preview-tab">
       {/* Video Player Section */}
       <div className="video-section">
         <VideoPlayerSection
           url={mediaFilePath}
-          playback={playback}
+          playback={videoPlayback}
           onProgress={onProgress}
           onDuration={onDuration}
           onPlayPause={onTogglePlay}
