@@ -150,6 +150,9 @@ export class FFmpegService {
         console.log("Princes (background audio):", princes);
         console.log("Segments:", segments.length);
 
+        // Get multiplier from settings (default to 1.0)
+        const multiplier = settings.multiplier || 1.0;
+
         // Step 2: Build video clips for each segment (like Prestige does per milestone)
         onProgress({
           stage: "Building Clips",
@@ -164,6 +167,7 @@ export class FFmpegService {
           princes,
           tracks,
           kingsPrincesMode,
+          multiplier,
         });
 
         console.log(`Built ${clips.length} clips for export`);
@@ -269,8 +273,9 @@ export class FFmpegService {
     princes: number[];
     tracks: AudioTrack[];
     kingsPrincesMode: KingsPrincesMode;
+    multiplier: number;
   }): VideoClip[] {
-    const { segments, mediaFilePath, kings, princes, tracks } = params;
+    const { segments, mediaFilePath, kings, princes, tracks, multiplier } = params;
     const clips: VideoClip[] = [];
 
     segments.forEach((segment, segmentIndex) => {
@@ -285,6 +290,7 @@ export class FFmpegService {
           kingIndex,
           segment,
           mediaFilePath,
+          multiplier,
         });
 
         if (!kingConfig) {
@@ -345,6 +351,7 @@ export class FFmpegService {
     kingIndex: number;
     segment: AnnotationSegment;
     mediaFilePath: string;
+    multiplier: number;
   }): {
     A1: string;
     A1Start: number;
@@ -353,8 +360,7 @@ export class FFmpegService {
     V1Speed: number;
     kingLen: number;
   } | null {
-    const { kingIndex, segment, mediaFilePath } = params;
-    const multiplier = 1.0; // TODO: Get from settings
+    const { kingIndex, segment, mediaFilePath, multiplier } = params;
 
     // King Index 0: Video's original audio
     if (kingIndex === 0) {
@@ -613,6 +619,37 @@ export class FFmpegService {
   }
 
   /**
+   * Build atempo filters for speed changes outside FFmpeg's 0.5-2.0 range
+   * Chains multiple atempo filters to achieve extreme speeds
+   * Matches Prestige's buildTempoFilters() algorithm
+   */
+  private buildTempoFilters(speed: number): string {
+    const ATEMPO_MIN = 0.5;
+    const ATEMPO_MAX = 2.0;
+    const filters: string[] = [];
+    let remainingSpeed = speed;
+
+    // Handle speeds faster than 2x by chaining 2.0x filters
+    while (remainingSpeed > ATEMPO_MAX) {
+      filters.push('atempo=2.0');
+      remainingSpeed = remainingSpeed / 2.0;
+    }
+
+    // Handle speeds slower than 0.5x by chaining 0.5x filters
+    while (remainingSpeed < ATEMPO_MIN && remainingSpeed > 0) {
+      filters.push('atempo=0.5');
+      remainingSpeed = remainingSpeed / 0.5;
+    }
+
+    // Add final tempo filter if remaining speed is within valid range
+    if (remainingSpeed >= ATEMPO_MIN && remainingSpeed <= ATEMPO_MAX) {
+      filters.push(`atempo=${remainingSpeed.toFixed(4)}`);
+    }
+
+    return filters.join(',');
+  }
+
+  /**
    * Build FFmpeg filter for a clip
    */
   private buildClipFilter(clip: VideoClip): string {
@@ -623,15 +660,17 @@ export class FFmpegService {
     if (clip.V1Speed !== 1.0) {
       filters.push(`[0:v]setpts=PTS/${clip.V1Speed}[v]`);
     } else {
-      filters.push(`[0:v]copy[v]`);
+      filters.push(`[0:v]null[v]`); // Use null filter for passthrough
     }
 
-    // Primary audio (A1)
+    // Primary audio (A1 - king)
     const a1Input = clip.A1 === clip.V1 ? "0:a" : "1:a";
     let a1Filter = `[${a1Input}]`;
 
     if (clip.A1Speed !== 1.0) {
-      a1Filter += `atempo=${Math.min(2.0, Math.max(0.5, clip.A1Speed))},`;
+      // Use chained atempo filters for extreme speeds
+      const tempoFilters = this.buildTempoFilters(clip.A1Speed);
+      a1Filter += `${tempoFilters},`;
     }
     a1Filter += `volume=${clip.A1Vol}[a1]`;
     filters.push(a1Filter);
@@ -643,7 +682,10 @@ export class FFmpegService {
       let a2Filter = `[${a2InputIndex}:a]`;
 
       if ((clip.A2Speed || 1.0) !== 1.0) {
-        a2Filter += `atempo=${Math.min(2.0, Math.max(0.5, clip.A2Speed || 1.0))},`;
+        // Use chained atempo filters for extreme prince speeds
+        // Critical for princes that are much longer/shorter than king
+        const tempoFilters = this.buildTempoFilters(clip.A2Speed || 1.0);
+        a2Filter += `${tempoFilters},`;
       }
       a2Filter += `volume=${clip.A2Vol || 1.0}[a2]`;
       filters.push(a2Filter);

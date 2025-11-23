@@ -201,12 +201,12 @@ export async function saveElanFile(
       ANNOTATION: [] as any[],
     };
 
-    // Create translation tier (SayMore naming - simplified)
+    // Create translation tier (SayMore exact naming)
     const translationTier: any = {
       $: {
         DEFAULT_LOCALE: "en",
         LINGUISTIC_TYPE_REF: "default-lt",
-        TIER_ID: "Translation",
+        TIER_ID: "Phrase Free Translation", // Matches SayMore's TextTier.ElanTranslationTierId
       },
       ANNOTATION: [] as any[],
     };

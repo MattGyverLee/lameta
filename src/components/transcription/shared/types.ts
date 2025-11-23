@@ -259,6 +259,9 @@ export interface ExportSettings {
 
   /** Whether to apply kings/princes speed adjustment */
   applyKingsPrinces: boolean;
+
+  /** Global speed multiplier for export (default: 1.0) */
+  multiplier?: number;
 }
 
 // ============================================================================
