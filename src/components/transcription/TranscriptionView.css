@@ -1,0 +1,195 @@
+/**
+ * TranscriptionView Styles
+ * Main container for transcription tools with two-tab interface
+ */
+
+.transcription-view {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: white;
+}
+
+/* Header */
+.transcription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--header-background-color);
+  border-bottom: 2px solid var(--pane__border--color);
+}
+
+.transcription-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.transcription-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.unsaved-indicator {
+  color: var(--accent-color);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn-save {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: var(--session--color);
+  border: 1px solid var(--pane__border--color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-save:hover {
+  background: #b8d97f;
+}
+
+.btn-close {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: white;
+  border: 1px solid var(--pane__border--color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-close:hover {
+  background: var(--error-color);
+  color: white;
+}
+
+/* Tabs Container */
+.transcription-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Tab List (Override react-tabs defaults) */
+.transcription-tab-list {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--pane__interstitial--color);
+  border-bottom: 2px solid var(--pane__border--color);
+}
+
+.transcription-tab {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.transcription-tab:hover {
+  background: rgba(207, 240, 159, 0.2);
+  color: #333;
+}
+
+.transcription-tab.selected {
+  color: #333;
+  background: white;
+  border-bottom: 3px solid var(--accent-color);
+}
+
+/* Tab Panels */
+.transcription-tab-panel {
+  flex: 1;
+  overflow: hidden;
+  display: none;
+}
+
+.transcription-tab-panel.react-tabs__tab-panel--selected {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Utility Classes */
+.btn-primary {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: #d68554;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: white;
+  color: #333;
+  border: 1px solid var(--pane__border--color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background: var(--pane__interstitial--color);
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  font-size: 14px;
+  background: var(--error-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: #a82622;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 16px;
+  color: #666;
+}
+
+/* Error Message */
+.error-message {
+  padding: 12px 16px;
+  background: #ffebee;
+  color: var(--error-color);
+  border-left: 4px solid var(--error-color);
+  margin: 12px;
+  border-radius: 4px;
+}
+
+/* Info Message */
+.info-message {
+  padding: 12px 16px;
+  background: #e3f2fd;
+  color: var(--link--color);
+  border-left: 4px solid var(--link--color);
+  margin: 12px;
+  border-radius: 4px;
+}
