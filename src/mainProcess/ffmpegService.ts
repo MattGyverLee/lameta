@@ -172,6 +172,19 @@ export class FFmpegService {
 
         console.log(`Built ${clips.length} clips for export`);
 
+        // Validate all clips before processing
+        const allErrors: string[] = [];
+        clips.forEach((clip, index) => {
+          const validation = this.validateClip(clip);
+          if (!validation.valid) {
+            allErrors.push(`Clip ${index}: ${validation.errors.join(', ')}`);
+          }
+        });
+
+        if (allErrors.length > 0) {
+          throw new Error(`Clip validation failed:\n${allErrors.join('\n')}`);
+        }
+
         // Step 3: Process each clip with FFmpeg
         const clipFiles: string[] = [];
 
@@ -614,6 +627,12 @@ export class FFmpegService {
       outputPath
     );
 
+    // Debug logging: Write FFmpeg command to file for troubleshooting
+    const debugPath = path.join(tempDir, `ffmpeg_cmd_${clipIndex}.txt`);
+    const fullCommand = `ffmpeg ${args.join(' ')}`;
+    fs.writeFileSync(debugPath, fullCommand, 'utf8');
+    console.log(`Debug: FFmpeg command written to ${debugPath}`);
+
     await this.runFFmpeg(args);
     return outputPath;
   }
@@ -650,6 +669,74 @@ export class FFmpegService {
   }
 
   /**
+   * Validate a video clip configuration
+   * Returns validation result with errors if any
+   */
+  private validateClip(clip: VideoClip): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    // Validate required fields
+    if (!clip.V1) {
+      errors.push('Missing V1 (video source)');
+    }
+    if (!clip.A1) {
+      errors.push('Missing A1 (audio source)');
+    }
+    if (clip.V1Start === undefined) {
+      errors.push('Missing V1Start');
+    }
+    if (clip.V1Stop === undefined) {
+      errors.push('Missing V1Stop');
+    }
+    if (clip.V1Speed === undefined) {
+      errors.push('Missing V1Speed');
+    }
+
+    // Validate time ranges (stop must be after start)
+    if (clip.V1Start !== undefined && clip.V1Stop !== undefined) {
+      if (clip.V1Stop <= clip.V1Start) {
+        errors.push('V1Stop must be greater than V1Start');
+      }
+    }
+    if (clip.A1Start !== undefined && clip.A1Stop !== undefined) {
+      if (clip.A1Stop <= clip.A1Start) {
+        errors.push('A1Stop must be greater than A1Start');
+      }
+    }
+
+    // Validate speed values (must be positive)
+    if (clip.V1Speed !== undefined && clip.V1Speed <= 0) {
+      errors.push('V1Speed must be greater than 0');
+    }
+    if (clip.A1Speed !== undefined && clip.A1Speed <= 0) {
+      errors.push('A1Speed must be greater than 0');
+    }
+
+    // Validate secondary audio (A2) if enabled
+    if (clip.isA2) {
+      if (!clip.A2) {
+        errors.push('isA2 is true but A2 is missing');
+      }
+      if (clip.A2Start === undefined) {
+        errors.push('isA2 is true but A2Start is missing');
+      }
+      if (clip.A2Stop === undefined) {
+        errors.push('isA2 is true but A2Stop is missing');
+      }
+      if (clip.A2Start !== undefined && clip.A2Stop !== undefined) {
+        if (clip.A2Stop <= clip.A2Start) {
+          errors.push('A2Stop must be greater than A2Start');
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
    * Build FFmpeg filter for a clip
    */
   private buildClipFilter(clip: VideoClip): string {
@@ -657,44 +744,66 @@ export class FFmpegService {
     const audioInputs: string[] = [];
 
     // Video speed adjustment
+    // setpts adjusts timestamps: to speed up by 2x, multiply PTS by 0.5
+    // Formula: setpts = (1 / speed) * PTS
     if (clip.V1Speed !== 1.0) {
-      filters.push(`[0:v]setpts=PTS/${clip.V1Speed}[v]`);
+      const ptsMultiplier = 1 / clip.V1Speed;
+      filters.push(`[0:v]setpts=${ptsMultiplier}*PTS[v]`);
     } else {
       filters.push(`[0:v]null[v]`); // Use null filter for passthrough
     }
 
     // Primary audio (A1 - king)
     const a1Input = clip.A1 === clip.V1 ? "0:a" : "1:a";
-    let a1Filter = `[${a1Input}]`;
+    const a1Filters: string[] = [];
+
+    // Reset audio timestamps to prevent sync drift
+    a1Filters.push('asetpts=PTS-STARTPTS');
+
+    // Handle async audio/video sync issues
+    a1Filters.push('aresample=async=1');
 
     if (clip.A1Speed !== 1.0) {
       // Use chained atempo filters for extreme speeds
       const tempoFilters = this.buildTempoFilters(clip.A1Speed);
-      a1Filter += `${tempoFilters},`;
+      a1Filters.push(tempoFilters);
     }
-    a1Filter += `volume=${clip.A1Vol}[a1]`;
-    filters.push(a1Filter);
+
+    // Apply volume
+    a1Filters.push(`volume=${clip.A1Vol}`);
+
+    filters.push(`[${a1Input}]${a1Filters.join(',')}[a1]`);
     audioInputs.push("[a1]");
 
     // Secondary audio (A2 - prince)
     if (clip.isA2 && clip.A2) {
       const a2InputIndex = clip.A1 === clip.V1 ? 1 : 2;
-      let a2Filter = `[${a2InputIndex}:a]`;
+      const a2Filters: string[] = [];
+
+      // Reset audio timestamps to prevent sync drift
+      a2Filters.push('asetpts=PTS-STARTPTS');
+
+      // Handle async audio/video sync issues
+      a2Filters.push('aresample=async=1');
 
       if ((clip.A2Speed || 1.0) !== 1.0) {
         // Use chained atempo filters for extreme prince speeds
         // Critical for princes that are much longer/shorter than king
         const tempoFilters = this.buildTempoFilters(clip.A2Speed || 1.0);
-        a2Filter += `${tempoFilters},`;
+        a2Filters.push(tempoFilters);
       }
-      a2Filter += `volume=${clip.A2Vol || 1.0}[a2]`;
-      filters.push(a2Filter);
+
+      // Apply volume
+      a2Filters.push(`volume=${clip.A2Vol || 1.0}`);
+
+      filters.push(`[${a2InputIndex}:a]${a2Filters.join(',')}[a2]`);
       audioInputs.push("[a2]");
     }
 
     // Mix audio
+    // Use duration=longest to preserve all audio (princes may extend beyond kings)
     if (audioInputs.length > 1) {
-      filters.push(`${audioInputs.join("")}amix=inputs=${audioInputs.length}:duration=first[amix]`);
+      filters.push(`${audioInputs.join("")}amix=inputs=${audioInputs.length}:duration=longest[amix]`);
     } else {
       filters.push(`${audioInputs[0]}anull[amix]`);
     }
