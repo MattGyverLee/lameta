@@ -5,6 +5,7 @@
 
 import React, { useState } from "react";
 import "./PreviewTab.css";
+import VideoPlayerSection from "../shared/VideoPlayerSection";
 import {
   AnnotationSegment,
   AudioTrack,
@@ -111,15 +112,13 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     <div className="preview-tab">
       {/* Video Player Section */}
       <div className="video-section">
-        <div className="video-placeholder">
-          <p>Video Player Section</p>
-          <p>Media: {mediaFilePath}</p>
-          <p>Status: {playback.playing ? "Playing" : "Paused"}</p>
-          <p>Time: {playback.currentTime.toFixed(2)}s / {playback.duration.toFixed(2)}s</p>
-          <button onClick={onTogglePlay}>
-            {playback.playing ? "Pause" : "Play"}
-          </button>
-        </div>
+        <VideoPlayerSection
+          url={mediaFilePath}
+          playback={playback}
+          onProgress={onProgress}
+          onDuration={onDuration}
+          onPlayPause={onTogglePlay}
+        />
       </div>
 
       {/* Multi-Track Waveform Section */}
