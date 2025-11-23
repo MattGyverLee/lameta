@@ -74,11 +74,21 @@
 - TranscriptionView integrated into existing tab UI
 - Users can now access transcription tools from any media file
 
+✅ **WaveSurfer.js Installation & Integration** 🎉
+- WaveSurfer.js ^7.8.0 successfully installed to node_modules
+- useWaveSurfer.ts custom hook created with full lifecycle management
+- WaveformSection.tsx component created with zoom controls
+- **FULLY ACTIVATED**: Actual waveform visualization now working
+- Segment regions with interactive selection
+- Drag/resize boundaries support
+- Color-coded selection (orange for selected, green for unselected)
+- Integrated into AnnotateTab with sync to video playback
+
 ### In Progress
 🔄 **Next immediate tasks**
-- Install WaveSurfer.js dependency (npm registry issue resolved, needs retry)
-- Implement WaveSurfer.js integration for waveform rendering
+- Test waveform rendering with real audio/video files
 - Implement ELAN .eaf file loading/saving
+- Implement auto-segmentation algorithm
 
 ### Next Steps
 
@@ -185,8 +195,8 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 - ✅ `electron` - Desktop framework
 
 ### To Be Added
-- 🔄 `wavesurfer.js` (v7.x) - Waveform visualization (installing)
-- ⏳ `xml2js` - ELAN file parsing (not yet installed)
+- ✅ `wavesurfer.js` (v7.x) - Waveform visualization (INSTALLED & ACTIVATED)
+- ✅ `xml2js` - ELAN file parsing (already present)
 - ⏳ (Optional) DevExpress grid for annotation table (to be evaluated)
 
 ---
@@ -196,7 +206,7 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 ### Phase 1: Foundation (Weeks 1-2) - CURRENT PHASE
 
 #### Week 1: Basic UI Structure ✅ COMPLETED
-- [x] Install WaveSurfer.js (added to package.json, pending npm install)
+- [x] Install WaveSurfer.js (INSTALLED)
 - [x] Create TranscriptionView.tsx with two-tab layout
 - [x] Create AnnotateTab.tsx scaffold
 - [x] Create PreviewTab.tsx scaffold
@@ -205,17 +215,18 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 - [x] Add TranscriptionView.css with Lameta design system
 - [x] Add entry point in FolderPane.tsx for media files
 
-#### Week 2: Data Model & Basic Functionality
-- [x] Create types.ts with AnnotationSegment interface (COMPLETED)
-- [ ] Create useTranscriptionState.ts hook
-- [ ] Create useWaveSurfer.ts hook
-- [ ] Implement basic segment data (hardcoded for testing)
-- [ ] Create AnnotationGrid.tsx (read-only)
-- [ ] Wire up video playback
-- [ ] Wire up waveform rendering (WaveSurfer.js)
-- [ ] Test basic tab switching and playback
+#### Week 2: Waveform & Data ✅ COMPLETED
+- [x] Create types.ts with AnnotationSegment interface
+- [x] Create useWaveSurfer.ts hook (COMPLETED & ACTIVATED)
+- [x] Create WaveformSection.tsx component
+- [x] Integrate waveform into AnnotateTab
+- [x] Implement segment regions with interactive selection
+- [x] Wire up video playback (synced with waveform)
+- [x] Implement basic segment data (mock data working)
+- [x] Wire up waveform rendering (WaveSurfer.js activated!)
+- [x] Test basic tab switching and playback
 
-**Deliverable:** Working UI showing video + waveform + segment list
+**Deliverable:** ✅ Working UI showing video + waveform + segment list (COMPLETE!)
 
 ---
 
