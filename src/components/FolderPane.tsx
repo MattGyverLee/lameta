@@ -38,6 +38,7 @@ import { css } from "@emotion/react";
 import { RoCrateView } from "./RoCrate/RoCrateView";
 import userSettingsSingleton from "../other/UserSettings";
 import { HighlightableTab } from "./HighlightableTab";
+import TranscriptionView from "./transcription/TranscriptionView";
 
 export interface IProps {
   folder: Folder;
@@ -475,12 +476,21 @@ const FileTabs: React.FunctionComponent<
             <Tab>
               <Trans>Audio</Trans>
             </Tab>
+            <Tab>
+              <Trans>Transcribe</Trans>
+            </Tab>
             {standardMetaTabs}
           </TabList>
           <TabPanel>
             <audio controls>
               <source src={`file://${path}`} />
             </audio>
+          </TabPanel>
+          <TabPanel>
+            <TranscriptionView
+              mediaFilePath={path}
+              onClose={() => setTabIndex(0)}
+            />
           </TabPanel>
           {standardMetaPanels}
         </Tabs>
@@ -491,6 +501,9 @@ const FileTabs: React.FunctionComponent<
           <TabList>
             <Tab>
               <Trans>Video</Trans>
+            </Tab>
+            <Tab>
+              <Trans>Transcribe</Trans>
             </Tab>
             {standardMetaTabs}
           </TabList>
@@ -505,6 +518,12 @@ const FileTabs: React.FunctionComponent<
               onError={(e) => {
                 NotifyError("video error:" + e);
               }}
+            />
+          </TabPanel>
+          <TabPanel>
+            <TranscriptionView
+              mediaFilePath={path}
+              onClose={() => setTabIndex(0)}
             />
           </TabPanel>
           {standardMetaPanels}
