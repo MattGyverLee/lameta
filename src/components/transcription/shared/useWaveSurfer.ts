@@ -4,11 +4,9 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import WaveSurfer from "wavesurfer.js";
+import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
 import type { AnnotationSegment } from "./types";
-
-// WaveSurfer types (will be imported once installed)
-// import WaveSurfer from "wavesurfer.js";
-// import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
 
 /**
  * Configuration options for useWaveSurfer hook
@@ -124,11 +122,7 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
     setIsLoading(true);
     setIsReady(false);
 
-    // TODO: Initialize WaveSurfer when installed
-    // This is a placeholder that will be implemented once wavesurfer.js is installed
-
-    // Example implementation (will uncomment once WaveSurfer.js is installed):
-    /*
+    // Initialize WaveSurfer with Regions plugin
     const regionsPlugin = RegionsPlugin.create({
       dragSelection: false, // Disable drag-to-select
     });
@@ -162,17 +156,8 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
 
     wavesurferRef.current = ws;
     regionsPluginRef.current = regionsPlugin;
-    */
-
-    // Temporary: Mark as "ready" after a short delay for testing
-    const timer = setTimeout(() => {
-      setIsReady(true);
-      setIsLoading(false);
-      console.log("WaveSurfer placeholder initialized");
-    }, 500);
 
     return () => {
-      clearTimeout(timer);
       if (wavesurferRef.current) {
         wavesurferRef.current.destroy();
       }
@@ -185,10 +170,6 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
   useEffect(() => {
     if (!wavesurferRef.current || !regionsPluginRef.current || !isReady) return;
 
-    // TODO: Update regions when WaveSurfer.js is installed
-    // This will create visual regions for each segment
-
-    /*
     // Clear existing regions
     regionsPluginRef.current.clearRegions();
 
@@ -219,9 +200,6 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
         }
       });
     });
-    */
-
-    console.log(`Regions placeholder: ${segments.length} segments`);
   }, [segments, selectedSegmentId, isReady, onRegionClick, onRegionUpdate]);
 
   /**
