@@ -1,7 +1,7 @@
 # Transcription Tools Implementation Progress
 
 **Started:** 2025-11-23
-**Status:** Phase 2 - Segmentation (COMPLETED) 🎉
+**Status:** Phase 3 - Text Annotation (COMPLETED) 🎉
 
 ---
 
@@ -123,9 +123,16 @@
 - Tooltips on all segmentation buttons
 - Smart input field detection (shortcuts disabled when typing)
 
+✅ **Auto-Loop Playback** 🎉
+- Automatic looping of selected segment boundaries
+- Loop region updates when segment boundaries are dragged
+- Loop clears when no segment is selected
+- Visual loop indicator shows active loop region with start/end times
+- Seamless integration with video player for hands-free transcription
+
 ### In Progress
 🔄 **Next immediate tasks**
-- None! Phase 2 is complete. Ready to begin Phase 3 (Text Annotation).
+- None! Phase 3 is complete. Ready to begin Phase 4 (Multi-Layer Playback).
 
 ### Next Steps
 
@@ -287,17 +294,20 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 
 ---
 
-### Phase 3: Text Annotation (Weeks 5-6) - PARTIALLY COMPLETE
+### Phase 3: Text Annotation (Weeks 5-6) ✅ COMPLETED
 
 - [x] Make AnnotationGrid editable (Already working!)
 - [x] Implement keyboard navigation (Tab, Enter, F2) (Complete in Phase 2!)
-- [ ] Add auto-loop playback on segment focus
+- [x] Add auto-loop playback on segment focus (COMPLETED!)
 - [x] Install xml2js for ELAN file parsing (Already installed)
 - [x] Implement ELAN .eaf file reader (Complete in Phase 2!)
 - [x] Implement ELAN .eaf file writer (Complete in Phase 2!)
 - [x] Add auto-save functionality (Complete in Phase 2!)
 
-**Deliverable:** Full transcription workflow (MOSTLY COMPLETE - only auto-loop remaining)
+**Deliverable:** ✅ Full transcription workflow (COMPLETE!)
+
+**Commits:**
+- Add auto-loop playback on segment focus (cc9b48e)
 
 ---
 
