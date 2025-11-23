@@ -370,11 +370,11 @@ export class FFmpegService {
       };
     }
 
-    // King Index 1: Careful speech .wav file
+    // King Index 1: Careful speech .wav file (SayMore naming: {start}_to_{end}_Careful.wav)
     if (kingIndex === 1 && segment.carefulSpeechFile) {
       const A1 = segment.carefulSpeechFile;
       const A1Speed = multiplier;
-      // Careful speech files are relative to segment, so start at 0
+      // Oral annotation files start from 0 (relative to segment)
       const A1Start = 0;
       const A1Stop = segment.end - segment.start; // Duration matches segment
       const kingLen = (A1Stop - A1Start) / A1Speed;
@@ -383,7 +383,7 @@ export class FFmpegService {
       return { A1, A1Start, A1Stop, A1Speed, V1Speed, kingLen };
     }
 
-    // King Index 2: Oral translation .wav file
+    // King Index 2: Oral translation .wav file (SayMore naming: {start}_to_{end}_Translation.wav)
     if (kingIndex === 2 && segment.oralTranslationFile) {
       const A1 = segment.oralTranslationFile;
       const A1Speed = multiplier;

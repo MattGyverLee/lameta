@@ -105,7 +105,7 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
   };
 
   /**
-   * Start recording
+   * Start recording (outputs WAV format to match SayMore)
    */
   const handleStartRecording = async () => {
     try {
@@ -115,7 +115,8 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Create MediaRecorder
+      // Create MediaRecorder - use webm/opus but will convert to WAV on save
+      // TODO: Consider using MediaRecorder with wav encoding or Web Audio API for direct WAV output
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
       });

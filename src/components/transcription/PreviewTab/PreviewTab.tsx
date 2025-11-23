@@ -89,6 +89,15 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   });
   const [exportError, setExportError] = useState<string | undefined>(undefined);
 
+  // Oral annotation generation progress state
+  const [oralAnnotationProgressOpen, setOralAnnotationProgressOpen] = useState(false);
+  const [oralAnnotationProgress, setOralAnnotationProgress] = useState<ExportProgress>({
+    stage: "Preparing",
+    percent: 0,
+    message: "Initializing...",
+  });
+  const [oralAnnotationError, setOralAnnotationError] = useState<string | undefined>(undefined);
+
   /**
    * Update track volume by index
    */
@@ -169,6 +178,50 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   };
 
   /**
+   * Handle generate oral annotation file
+   * Matches SayMore's OralAnnotationFileGenerator
+   */
+  const handleGenerateOralAnnotation = async () => {
+    try {
+      // Determine annotations directory
+      const path = require("path");
+      const mediaDir = path.dirname(mediaFilePath);
+      const mediaBaseName = path.basename(mediaFilePath, path.extname(mediaFilePath));
+      const annotationsDir = path.join(mediaDir, `${mediaBaseName}_Annotations`);
+
+      // Check if annotations directory exists
+      const fs = require("fs");
+      if (!fs.existsSync(annotationsDir)) {
+        alert("No annotations folder found. Please record at least one segment first.");
+        return;
+      }
+
+      // Open progress dialog
+      setOralAnnotationProgressOpen(true);
+      setOralAnnotationError(undefined);
+      setOralAnnotationProgress({
+        stage: "Preparing",
+        percent: 0,
+        message: "Initializing oral annotation generation...",
+      });
+
+      // Call main process to generate oral annotation file
+      const outputFile = await mainProcessApi.generateOralAnnotationFile(
+        mediaFilePath,
+        segments,
+        annotationsDir
+      );
+
+      // Generation completed successfully
+      console.log("Oral annotation file generated:", outputFile);
+      alert(`Oral annotation file generated successfully:\n${outputFile}`);
+    } catch (error) {
+      console.error("Oral annotation generation failed:", error);
+      setOralAnnotationError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  /**
    * Setup IPC listener for export progress
    */
   useEffect(() => {
@@ -184,6 +237,25 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   }, []);
 
   /**
+   * Setup IPC listener for oral annotation progress
+   */
+  useEffect(() => {
+    const handleProgress = (_event: any, progress: any) => {
+      setOralAnnotationProgress({
+        stage: progress.stage,
+        percent: progress.percentage,
+        message: progress.stage,
+      });
+    };
+
+    ipcRenderer.on("oralAnnotation:progress", handleProgress);
+
+    return () => {
+      ipcRenderer.removeListener("oralAnnotation:progress", handleProgress);
+    };
+  }, []);
+
+  /**
    * Close progress dialog
    */
   const handleCloseProgress = () => {
@@ -193,6 +265,19 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       stage: "Preparing",
       percent: 0,
       message: "Initializing export...",
+    });
+  };
+
+  /**
+   * Close oral annotation progress dialog
+   */
+  const handleCloseOralAnnotationProgress = () => {
+    setOralAnnotationProgressOpen(false);
+    setOralAnnotationError(undefined);
+    setOralAnnotationProgress({
+      stage: "Preparing",
+      percent: 0,
+      message: "Initializing...",
     });
   };
 
@@ -252,6 +337,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
           Export video with burned-in subtitles and mixed audio tracks using
           FFmpeg.
         </p>
+
+        <button onClick={handleGenerateOralAnnotation} className="btn-generate-oral">
+          Generate Oral Annotation File
+        </button>
+        <p className="export-help">
+          Generate interleaved .wav file combining source, careful speech, and
+          oral translation (matches SayMore format).
+        </p>
       </div>
 
       {/* Export Dialog */}
@@ -271,6 +364,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         progress={exportProgress}
         error={exportError}
         onClose={handleCloseProgress}
+      />
+
+      {/* Oral Annotation Progress Dialog */}
+      <ExportProgressDialog
+        isOpen={oralAnnotationProgressOpen}
+        progress={oralAnnotationProgress}
+        error={oralAnnotationError}
+        onClose={handleCloseOralAnnotationProgress}
       />
 
       {/* Playback Controls */}

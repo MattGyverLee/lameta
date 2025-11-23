@@ -1,12 +1,12 @@
 /**
- * AutoSegmenter - Automatic audio segmentation using Web Audio API
- * Based on SayMore's AutoSegmenter algorithm
+ * AutoSegmenter - Automatic audio segmentation matching SayMore's algorithm
+ * Direct port from SayMore/Transcription/Model/AutoSegmenter.cs
  */
 
 import { AnnotationSegment, SegmentationSettings } from "./types";
 
 /**
- * Analyze audio and automatically create segments based on silence detection
+ * Analyze audio and automatically create segments based on SayMore's algorithm
  * @param audioBuffer Web Audio API AudioBuffer
  * @param settings Segmentation settings
  * @returns Array of generated annotation segments
@@ -20,110 +20,111 @@ export async function autoSegment(
     maximumSegmentLengthMs,
     preferredPauseLengthMs,
     optimumLengthClampingFactor,
-    silenceThresholdDb,
   } = settings;
-
-  // Convert settings to seconds
-  const minSegmentLength = minimumSegmentLengthMs / 1000;
-  const maxSegmentLength = maximumSegmentLengthMs / 1000;
-  const preferredPauseLength = preferredPauseLengthMs / 1000;
 
   // Get audio data (mono)
   const channelData = audioBuffer.getChannelData(0);
+  const totalSamples = channelData.length;
   const sampleRate = audioBuffer.sampleRate;
-  const duration = audioBuffer.duration;
+  const millisecondsPerSample = (audioBuffer.duration * 1000) / totalSamples;
 
-  // Calculate RMS (Root Mean Square) for volume analysis
-  const windowSize = Math.floor(sampleRate * 0.1); // 100ms windows
-  const rmsValues: number[] = [];
+  // Convert settings to samples
+  const adjacentSamplesToFactor = Math.floor(preferredPauseLengthMs / millisecondsPerSample);
+  const minSamplesPerSegment = Math.floor(minimumSegmentLengthMs / millisecondsPerSample);
+  const maxSamplesPerSegment = Math.floor(maximumSegmentLengthMs / millisecondsPerSample);
+  const idealSegmentLengthInSamples = Math.ceil((minSamplesPerSegment + maxSamplesPerSegment) / 2.0);
 
-  for (let i = 0; i < channelData.length; i += windowSize) {
-    const window = channelData.slice(i, Math.min(i + windowSize, channelData.length));
-    const rms = calculateRMS(window);
-    rmsValues.push(rms);
+  const breakPoints: number[] = [];
+  let remainingSamples = totalSamples;
+  let lastBreak = 0;
+
+  // Find natural breaks using SayMore's algorithm
+  while (remainingSamples >= maxSamplesPerSegment) {
+    let currentIdealLength = idealSegmentLengthInSamples;
+
+    // Adjust ideal length if remaining audio is less than 2x ideal
+    if (remainingSamples < idealSegmentLengthInSamples * 2) {
+      currentIdealLength = Math.floor(remainingSamples / 2);
+    }
+
+    const samplesOnEitherSideOfTarget =
+      currentIdealLength + adjacentSamplesToFactor - minSamplesPerSegment;
+    const targetBreak = lastBreak + currentIdealLength;
+
+    // Compute scores for potential break points
+    const rawScores: number[] = new Array(currentIdealLength * 2 + 1);
+    const adjustedScores: number[] = new Array(currentIdealLength * 2 + 1);
+
+    // Score the target break
+    rawScores[currentIdealLength] = computeRawScore(channelData, targetBreak);
+    let bestBreak = targetBreak;
+    let bestScore = Number.MAX_VALUE;
+
+    // Score points on either side of target
+    for (let i = 1; i < samplesOnEitherSideOfTarget; i++) {
+      if (i < currentIdealLength) {
+        rawScores[currentIdealLength + i] = computeRawScore(channelData, targetBreak + i);
+        rawScores[currentIdealLength - i] = computeRawScore(channelData, targetBreak - i);
+      }
+
+      if (i >= adjacentSamplesToFactor) {
+        // Compute adjusted scores using adjacent samples
+        const scoreAbove = computeAdjustedScore(
+          rawScores,
+          currentIdealLength + i,
+          adjacentSamplesToFactor,
+          optimumLengthClampingFactor,
+          i
+        );
+        const scoreBelow = computeAdjustedScore(
+          rawScores,
+          currentIdealLength - i,
+          adjacentSamplesToFactor,
+          optimumLengthClampingFactor,
+          i
+        );
+
+        if (scoreAbove < bestScore) {
+          bestScore = scoreAbove;
+          bestBreak = targetBreak + i;
+        }
+        if (scoreBelow < bestScore) {
+          bestScore = scoreBelow;
+          bestBreak = targetBreak - i;
+        }
+      }
+    }
+
+    breakPoints.push(bestBreak);
+    remainingSamples -= bestBreak - lastBreak;
+    lastBreak = bestBreak;
   }
 
-  // Convert silence threshold from dB to linear scale
-  const silenceThreshold = dbToLinear(silenceThresholdDb);
-
-  // Find silence regions
-  const silenceRegions: Array<{ start: number; end: number }> = [];
-  let silenceStart: number | null = null;
-
-  rmsValues.forEach((rms, index) => {
-    const time = (index * windowSize) / sampleRate;
-
-    if (rms < silenceThreshold) {
-      if (silenceStart === null) {
-        silenceStart = time;
-      }
-    } else {
-      if (silenceStart !== null) {
-        const silenceEnd = time;
-        const silenceDuration = silenceEnd - silenceStart;
-
-        // Only record significant pauses
-        if (silenceDuration >= preferredPauseLength * 0.3) {
-          silenceRegions.push({
-            start: silenceStart,
-            end: silenceEnd,
-          });
-        }
-        silenceStart = null;
-      }
-    }
-  });
-
-  // Create segments based on silence regions
+  // Convert break points to segments
   const segments: AnnotationSegment[] = [];
-  let segmentStart = 0;
-  let segmentId = 1;
+  let previousBreak = 0;
 
-  silenceRegions.forEach((silence) => {
-    const potentialEnd = silence.start;
-    const segmentLength = potentialEnd - segmentStart;
+  breakPoints.forEach((breakPoint, index) => {
+    const startTime = (previousBreak / sampleRate);
+    const endTime = (breakPoint / sampleRate);
 
-    // Check if segment meets minimum length
-    if (segmentLength >= minSegmentLength) {
-      // Check if segment exceeds maximum length
-      if (segmentLength > maxSegmentLength) {
-        // Split long segment at preferred points
-        const numSplits = Math.ceil(segmentLength / maxSegmentLength);
-        const splitLength = segmentLength / numSplits;
+    segments.push({
+      id: `seg-${index + 1}`,
+      start: startTime,
+      end: endTime,
+      text: "",
+      translation: "",
+    });
 
-        for (let i = 0; i < numSplits; i++) {
-          const splitStart = segmentStart + i * splitLength;
-          const splitEnd = Math.min(segmentStart + (i + 1) * splitLength, potentialEnd);
-
-          segments.push({
-            id: `seg-${segmentId++}`,
-            start: splitStart,
-            end: splitEnd,
-            text: "",
-            translation: "",
-          });
-        }
-      } else {
-        // Normal segment
-        segments.push({
-          id: `seg-${segmentId++}`,
-          start: segmentStart,
-          end: potentialEnd,
-          text: "",
-          translation: "",
-        });
-      }
-
-      segmentStart = silence.end;
-    }
+    previousBreak = breakPoint;
   });
 
-  // Add final segment if needed
-  if (segmentStart < duration - minSegmentLength) {
+  // Add final segment if there's remaining audio
+  if (previousBreak < totalSamples) {
     segments.push({
-      id: `seg-${segmentId++}`,
-      start: segmentStart,
-      end: duration,
+      id: `seg-${segments.length + 1}`,
+      start: previousBreak / sampleRate,
+      end: audioBuffer.duration,
       text: "",
       translation: "",
     });
@@ -134,21 +135,57 @@ export async function autoSegment(
 }
 
 /**
- * Calculate Root Mean Square (RMS) of audio samples
+ * Compute raw score (RMS) at a given sample position
+ * Matching SayMore's ComputeRawScore method
  */
-function calculateRMS(samples: Float32Array): number {
+function computeRawScore(samples: Float32Array, position: number): number {
+  const windowSize = 100; // Small window around the position
+  const start = Math.max(0, position - Math.floor(windowSize / 2));
+  const end = Math.min(samples.length, position + Math.floor(windowSize / 2));
+
   let sum = 0;
-  for (let i = 0; i < samples.length; i++) {
+  let count = 0;
+
+  for (let i = start; i < end; i++) {
     sum += samples[i] * samples[i];
+    count++;
   }
-  return Math.sqrt(sum / samples.length);
+
+  return count > 0 ? Math.sqrt(sum / count) : 0;
 }
 
 /**
- * Convert dB to linear scale
+ * Compute adjusted score considering adjacent samples and distance from ideal
+ * Matching SayMore's adjusted score calculation
  */
-function dbToLinear(db: number): number {
-  return Math.pow(10, db / 20);
+function computeAdjustedScore(
+  rawScores: number[],
+  index: number,
+  adjacentSamples: number,
+  clampingFactor: number,
+  distanceFromIdeal: number
+): number {
+  // Average raw scores of adjacent samples
+  let sum = 0;
+  let count = 0;
+
+  const start = Math.max(0, index - adjacentSamples);
+  const end = Math.min(rawScores.length, index + adjacentSamples + 1);
+
+  for (let i = start; i < end; i++) {
+    if (rawScores[i] !== undefined) {
+      sum += rawScores[i];
+      count++;
+    }
+  }
+
+  const averageRawScore = count > 0 ? sum / count : rawScores[index] || 0;
+
+  // Apply clamping factor to favor breaks near ideal length
+  // The further from ideal, the higher the penalty
+  const distancePenalty = Math.pow(distanceFromIdeal, clampingFactor);
+
+  return averageRawScore * (1 + distancePenalty * 0.01);
 }
 
 /**
@@ -181,7 +218,7 @@ export async function autoSegmentMediaFile(
   settings: SegmentationSettings
 ): Promise<AnnotationSegment[]> {
   try {
-    console.log("Starting auto-segmentation...");
+    console.log("Starting auto-segmentation (SayMore algorithm)...");
 
     // Load and decode audio
     const audioBuffer = await loadAudioForSegmentation(`file:///${mediaFilePath}`);

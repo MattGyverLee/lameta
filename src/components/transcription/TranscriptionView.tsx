@@ -409,6 +409,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
 
   /**
    * Save oral annotation recording to _Annotations folder
+   * Following SayMore's file naming convention: {start}_to_{end}_Careful.wav
    */
   const handleSaveRecording = async (
     segmentId: string,
@@ -420,19 +421,19 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
       const mediaDir = path.dirname(state.mediaFilePath);
       const mediaBaseName = path.basename(state.mediaFilePath, path.extname(state.mediaFilePath));
 
-      // Create _Annotations folder if it doesn't exist
+      // Create _Annotations folder if it doesn't exist (matching SayMore)
       const annotationsDir = path.join(mediaDir, `${mediaBaseName}_Annotations`);
       if (!fs.existsSync(annotationsDir)) {
         fs.mkdirSync(annotationsDir, { recursive: true });
       }
 
-      // Generate filename based on segment and recording type
+      // Generate filename based on segment timing (matching SayMore)
       const segment = state.segments.find((s) => s.id === segmentId);
       if (!segment) return;
 
-      const segmentIndex = state.segments.indexOf(segment);
-      const recordingTypeLabel = recordingType === OralAnnotationType.CarefulSpeech ? "careful" : "translation";
-      const filename = `${mediaBaseName}_seg${segmentIndex + 1}_${recordingTypeLabel}.webm`;
+      // SayMore's naming convention: {start}_to_{end}_Careful.wav or {start}_to_{end}_Translation.wav
+      const suffix = recordingType === OralAnnotationType.CarefulSpeech ? "_Careful.wav" : "_Translation.wav";
+      const filename = `${segment.start}_to_${segment.end}${suffix}`;
       const filePath = path.join(annotationsDir, filename);
 
       // Convert blob to buffer and save

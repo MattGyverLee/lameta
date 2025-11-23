@@ -113,6 +113,31 @@ export class MainProcessApi {
       }
     );
   }
+
+  /**
+   * Generate oral annotation file (interleaved multi-channel .wav)
+   * Progress updates are sent via IPC 'oralAnnotation:progress' channel
+   * Matches SayMore's OralAnnotationFileGenerator
+   */
+  public async generateOralAnnotationFile(
+    mediaFilePath: string,
+    segments: AnnotationSegment[],
+    annotationsDir: string
+  ): Promise<string> {
+    const { generateOralAnnotationFile } = require("./oralAnnotationFileGenerator");
+
+    return generateOralAnnotationFile(
+      mediaFilePath,
+      segments,
+      annotationsDir,
+      (progress) => {
+        // Send progress updates to renderer via IPC
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.send("oralAnnotation:progress", progress);
+        }
+      }
+    );
+  }
 }
 
 // Note, this causes E2E test to fail in the same way as LAM-27
