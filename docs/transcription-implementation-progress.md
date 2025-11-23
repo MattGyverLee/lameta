@@ -60,11 +60,25 @@
 - AnnotateTab.css: Grid, toolbar, waveform placeholders
 - PreviewTab.css: Multi-track layout, volume sliders
 
+✅ **VideoPlayerSection component** (`shared/VideoPlayerSection.tsx`)
+- Wraps ReactPlayer for video/audio playback
+- Controlled playback with play/pause/seek
+- Progress and duration reporting
+- Playback rate control
+- Loop region support for segment playback
+- Integrated into both AnnotateTab and PreviewTab
+
+✅ **Entry point in FolderPane**
+- Added "Transcribe" tab to Video file types
+- Added "Transcribe" tab to Audio file types
+- TranscriptionView integrated into existing tab UI
+- Users can now access transcription tools from any media file
+
 ### In Progress
 🔄 **Next immediate tasks**
-- Install WaveSurfer.js dependency (npm registry was down, retry needed)
-- Create VideoPlayerSection shared component with ReactPlayer
-- Add entry point in FolderPane for media files
+- Install WaveSurfer.js dependency (npm registry issue resolved, needs retry)
+- Implement WaveSurfer.js integration for waveform rendering
+- Implement ELAN .eaf file loading/saving
 
 ### Next Steps
 
@@ -181,15 +195,15 @@ Tab 1: AnnotateTab          Tab 2: PreviewTab
 
 ### Phase 1: Foundation (Weeks 1-2) - CURRENT PHASE
 
-#### Week 1: Basic UI Structure
+#### Week 1: Basic UI Structure ✅ COMPLETED
 - [x] Install WaveSurfer.js (added to package.json, pending npm install)
 - [x] Create TranscriptionView.tsx with two-tab layout
 - [x] Create AnnotateTab.tsx scaffold
 - [x] Create PreviewTab.tsx scaffold
-- [ ] Create VideoPlayerSection.tsx (shared) - NEXT
-- [ ] Create PlaybackControls.tsx (shared)
+- [x] Create VideoPlayerSection.tsx (shared)
+- [ ] Create PlaybackControls.tsx (shared) - Optional (using inline controls)
 - [x] Add TranscriptionView.css with Lameta design system
-- [ ] Add entry point in FolderPane.tsx for media files
+- [x] Add entry point in FolderPane.tsx for media files
 
 #### Week 2: Data Model & Basic Functionality
 - [x] Create types.ts with AnnotationSegment interface (COMPLETED)
