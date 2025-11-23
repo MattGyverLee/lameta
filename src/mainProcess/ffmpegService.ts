@@ -1,7 +1,11 @@
 /**
- * FFmpeg Service - Video/Audio export with subtitle burning and audio mixing
- * Based on Prestige's ExportVid algorithm
- * Supports kings/princes logic for multi-track audio
+ * FFmpeg Service - Video/Audio export matching Prestige's ExportVid logic
+ *
+ * Adapted from Prestige for Lameta's segment-based structure:
+ * - Uses individual segment .wav files instead of merged audio files
+ * - Implements kings/princes audio mixing strategy
+ * - Builds clips per segment (like Prestige does per milestone)
+ * - Supports "all kings" toggle mode
  */
 
 import { spawn } from "child_process";
@@ -18,48 +22,78 @@ export enum ExportFormat {
 }
 
 /**
- * Export settings matching renderer interface
+ * Export settings
  */
 export interface ExportSettings {
   format: ExportFormat;
   includeSubtitles: boolean;
   subtitleLanguage: "transcription" | "translation" | "both";
   outputPath: string;
-  videoQuality: number;
-  audioBitrate: number;
+  videoQuality: number; // CRF 0-51
+  audioBitrate: number; // kbps
 }
 
 /**
- * Annotation segment matching renderer interface
+ * Annotation segment (Lameta's equivalent of Prestige's Milestone)
  */
 export interface AnnotationSegment {
   id: string;
-  start: number;
-  end: number;
+  start: number; // Start time in source video
+  end: number;   // End time in source video
   transcription?: string;
   translation?: string;
-  carefulSpeechFile?: string;
-  oralTranslationFile?: string;
+  carefulSpeechFile?: string;    // Individual segment .wav file
+  oralTranslationFile?: string;  // Individual segment .wav file
 }
 
 /**
- * Audio track matching renderer interface
+ * Audio track configuration
  */
 export interface AudioTrack {
   id: string;
   label: string;
   url: string;
-  volume: number;
+  volume: number; // 0-100
   muted: boolean;
-  isKing: boolean;
+  isKing: boolean; // Whether this track is a king (volume >= 84%)
 }
 
 /**
  * Kings/Princes mode configuration
  */
 export interface KingsPrincesMode {
-  useKingsPrincesLogic: boolean;
-  kingThreshold: number;
+  useKingsPrincesLogic: boolean; // If false, all active tracks are kings
+  kingThreshold: number; // Default: 84
+}
+
+/**
+ * Video clip configuration (matching Prestige's VideoClip structure)
+ */
+interface VideoClip {
+  // Video source
+  V1: string;
+  V1Start: number;
+  V1Stop: number;
+  V1Speed: number;
+
+  // Primary audio (A1 - the "king")
+  A1: string;
+  A1Start: number;
+  A1Stop: number;
+  A1Speed: number;
+  A1Vol: number;
+
+  // Secondary audio (A2 - the "prince", if present)
+  isA2: boolean;
+  A2?: string;
+  A2Start?: number;
+  A2Stop?: number;
+  A2Speed?: number;
+  A2Vol?: number;
+
+  // Subtitle
+  subtitle: string;
+  Comment: string;
 }
 
 /**
@@ -72,11 +106,17 @@ export type ProgressCallback = (progress: {
 }) => void;
 
 /**
+ * Volume threshold for "king" classification (matching Prestige)
+ * 0.5 ** 0.25 ≈ 0.84 (84%)
+ */
+const KING_VOLUME_THRESHOLD = 84;
+
+/**
  * FFmpeg Service Class
  */
 export class FFmpegService {
   /**
-   * Export video/audio with FFmpeg
+   * Export video/audio with Prestige's kings/princes logic
    */
   public async exportMedia(
     mediaFilePath: string,
@@ -98,78 +138,78 @@ export class FFmpegService {
       await fs.ensureDir(tempDir);
 
       try {
-        // Step 1: Create segment clips
+        // Step 1: Categorize audio tracks into kings and princes
+        const { kings, princes } = this.categorizeAudioByVolume(tracks, kingsPrincesMode);
+
+        if (kings.length === 0) {
+          throw new Error("Enable at least one audio track before exporting.");
+        }
+
+        console.log("=== LAMETA EXPORT DEBUG ===");
+        console.log("Kings (primary audio):", kings);
+        console.log("Princes (background audio):", princes);
+        console.log("Segments:", segments.length);
+
+        // Step 2: Build video clips for each segment (like Prestige does per milestone)
         onProgress({
-          stage: "Extracting",
+          stage: "Building Clips",
           percent: 10,
-          message: `Extracting ${segments.length} segments...`,
+          message: `Building ${segments.length} segment clips...`,
         });
 
-        const segmentClips = await this.extractSegmentClips(
+        const clips = this.buildSegmentClips({
+          segments,
           mediaFilePath,
-          segments,
-          tempDir,
-          onProgress
-        );
-
-        // Step 2: Process audio tracks (mix with kings/princes logic if needed)
-        onProgress({
-          stage: "Processing Audio",
-          percent: 40,
-          message: "Mixing audio tracks...",
-        });
-
-        const processedClips = await this.processAudioTracks(
-          segmentClips,
-          segments,
+          kings,
+          princes,
           tracks,
           kingsPrincesMode,
-          settings,
-          tempDir,
-          onProgress
-        );
+        });
 
-        // Step 3: Create subtitles if needed
-        let subtitleFile: string | undefined;
-        if (settings.format === ExportFormat.Video && settings.includeSubtitles) {
+        console.log(`Built ${clips.length} clips for export`);
+
+        // Step 3: Process each clip with FFmpeg
+        const clipFiles: string[] = [];
+
+        for (let i = 0; i < clips.length; i++) {
+          const clip = clips[i];
+          const progress = 10 + (70 * (i + 1)) / clips.length;
+
           onProgress({
-            stage: "Creating Subtitles",
-            percent: 60,
-            message: "Generating subtitle file...",
+            stage: "Processing Clips",
+            percent: progress,
+            message: `Processing clip ${i + 1}/${clips.length}...`,
           });
 
-          subtitleFile = await this.createSubtitleFile(
-            segments,
-            settings.subtitleLanguage,
-            tempDir
-          );
+          const clipFile = await this.processClip(clip, i, tempDir);
+          clipFiles.push(clipFile);
         }
 
         // Step 4: Concatenate clips
         onProgress({
           stage: "Concatenating",
-          percent: 70,
-          message: "Combining segments...",
+          percent: 80,
+          message: "Combining clips...",
         });
 
         const concatenatedFile = await this.concatenateClips(
-          processedClips,
+          clipFiles,
           settings.format,
-          tempDir,
-          onProgress
+          tempDir
         );
 
-        // Step 5: Apply subtitles and finalize
+        // Step 5: Add subtitles and finalize
         onProgress({
           stage: "Finalizing",
-          percent: 85,
+          percent: 90,
           message: "Creating final output...",
         });
 
         await this.finalizeExport(
           concatenatedFile,
-          subtitleFile,
+          clips,
           settings,
+          tempDir,
           onProgress
         );
 
@@ -188,38 +228,314 @@ export class FFmpegService {
   }
 
   /**
-   * Extract individual segment clips from source video
+   * Categorize tracks into kings and princes (matching Prestige logic)
    */
-  private async extractSegmentClips(
-    mediaFilePath: string,
-    segments: AnnotationSegment[],
-    tempDir: string,
-    onProgress: ProgressCallback
-  ): Promise<string[]> {
-    const clips: string[] = [];
+  private categorizeAudioByVolume(
+    tracks: AudioTrack[],
+    kingsPrincesMode: KingsPrincesMode
+  ): { kings: number[]; princes: number[] } {
+    const kings: number[] = [];
+    const princes: number[] = [];
 
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const outputPath = path.join(tempDir, `segment_${i}.mp4`);
+    tracks.forEach((track, index) => {
+      if (track.muted || track.volume === 0) {
+        return; // Silent tracks excluded
+      }
 
-      const duration = segment.end - segment.start;
+      // All kings mode: all active tracks are kings
+      if (!kingsPrincesMode.useKingsPrincesLogic) {
+        kings.push(index);
+        return;
+      }
 
-      await this.runFFmpeg([
-        "-i", mediaFilePath,
-        "-ss", segment.start.toString(),
-        "-t", duration.toString(),
-        "-c", "copy",
-        "-avoid_negative_ts", "1",
-        outputPath,
-      ]);
+      // Kings/princes mode: check volume threshold
+      if (track.volume >= KING_VOLUME_THRESHOLD) {
+        kings.push(index);
+      } else {
+        princes.push(index);
+      }
+    });
 
-      clips.push(outputPath);
+    return { kings, princes };
+  }
 
-      const progress = 10 + (30 * (i + 1)) / segments.length;
-      onProgress({
-        stage: "Extracting",
-        percent: progress,
-        message: `Extracted segment ${i + 1}/${segments.length}`,
+  /**
+   * Build clips for all segments (matching Prestige's buildMilestoneClips)
+   */
+  private buildSegmentClips(params: {
+    segments: AnnotationSegment[];
+    mediaFilePath: string;
+    kings: number[];
+    princes: number[];
+    tracks: AudioTrack[];
+    kingsPrincesMode: KingsPrincesMode;
+  }): VideoClip[] {
+    const { segments, mediaFilePath, kings, princes, tracks } = params;
+    const clips: VideoClip[] = [];
+
+    segments.forEach((segment, segmentIndex) => {
+      // Video timing (same for all clips in this segment)
+      const V1 = mediaFilePath;
+      const V1Start = segment.start;
+      const V1Stop = segment.end;
+
+      // Process each king track
+      kings.forEach((kingIndex) => {
+        const kingConfig = this.calculateKingAudio({
+          kingIndex,
+          segment,
+          mediaFilePath,
+        });
+
+        if (!kingConfig) {
+          console.warn(`Skipping segment ${segmentIndex}, king ${kingIndex}: no audio found`);
+          return;
+        }
+
+        const { A1, A1Start, A1Stop, A1Speed, V1Speed, kingLen } = kingConfig;
+        const subtitle = this.getSubtitleForKing(segment, kingIndex);
+
+        // Add clips with prince voiceovers if present
+        if (princes.length > 0) {
+          const princeClips = this.buildPrinceClips({
+            princes,
+            segment,
+            segmentIndex,
+            V1,
+            V1Start,
+            V1Stop,
+            V1Speed,
+            A1,
+            A1Start,
+            A1Stop,
+            A1Speed,
+            kingLen,
+            kingIndex,
+            tracks,
+            subtitle,
+          });
+          clips.push(...princeClips);
+        } else {
+          // No princes: clip with only king audio
+          clips.push({
+            V1,
+            V1Start,
+            V1Stop,
+            V1Speed,
+            A1,
+            A1Start,
+            A1Stop,
+            A1Speed,
+            A1Vol: tracks[kingIndex].volume / 100,
+            isA2: false,
+            subtitle,
+            Comment: `Segment ${segmentIndex}: King ${kingIndex}`,
+          });
+        }
+      });
+    });
+
+    return clips;
+  }
+
+  /**
+   * Calculate king audio configuration (matching Prestige's calculateKingAudio)
+   */
+  private calculateKingAudio(params: {
+    kingIndex: number;
+    segment: AnnotationSegment;
+    mediaFilePath: string;
+  }): {
+    A1: string;
+    A1Start: number;
+    A1Stop: number;
+    A1Speed: number;
+    V1Speed: number;
+    kingLen: number;
+  } | null {
+    const { kingIndex, segment, mediaFilePath } = params;
+    const multiplier = 1.0; // TODO: Get from settings
+
+    // King Index 0: Video's original audio
+    if (kingIndex === 0) {
+      const A1Speed = multiplier;
+      const kingLen = (segment.end - segment.start) / A1Speed;
+      return {
+        A1: mediaFilePath,
+        A1Start: segment.start,
+        A1Stop: segment.end,
+        A1Speed,
+        V1Speed: multiplier,
+        kingLen,
+      };
+    }
+
+    // King Index 1: Careful speech .wav file
+    if (kingIndex === 1 && segment.carefulSpeechFile) {
+      const A1 = segment.carefulSpeechFile;
+      const A1Speed = multiplier;
+      // Careful speech files are relative to segment, so start at 0
+      const A1Start = 0;
+      const A1Stop = segment.end - segment.start; // Duration matches segment
+      const kingLen = (A1Stop - A1Start) / A1Speed;
+      const V1Speed = (segment.end - segment.start) / kingLen;
+
+      return { A1, A1Start, A1Stop, A1Speed, V1Speed, kingLen };
+    }
+
+    // King Index 2: Oral translation .wav file
+    if (kingIndex === 2 && segment.oralTranslationFile) {
+      const A1 = segment.oralTranslationFile;
+      const A1Speed = multiplier;
+      const A1Start = 0;
+      const A1Stop = segment.end - segment.start;
+      const kingLen = (A1Stop - A1Start) / A1Speed;
+      const V1Speed = (segment.end - segment.start) / kingLen;
+
+      return { A1, A1Start, A1Stop, A1Speed, V1Speed, kingLen };
+    }
+
+    return null; // King audio not found
+  }
+
+  /**
+   * Build clips with prince audio (matching Prestige's buildPrinceClips)
+   */
+  private buildPrinceClips(params: {
+    princes: number[];
+    segment: AnnotationSegment;
+    segmentIndex: number;
+    V1: string;
+    V1Start: number;
+    V1Stop: number;
+    V1Speed: number;
+    A1: string;
+    A1Start: number;
+    A1Stop: number;
+    A1Speed: number;
+    kingLen: number;
+    kingIndex: number;
+    tracks: AudioTrack[];
+    subtitle: string;
+  }): VideoClip[] {
+    const {
+      princes,
+      segment,
+      segmentIndex,
+      V1,
+      V1Start,
+      V1Stop,
+      V1Speed,
+      A1,
+      A1Start,
+      A1Stop,
+      A1Speed,
+      kingLen,
+      kingIndex,
+      tracks,
+      subtitle,
+    } = params;
+
+    const clips: VideoClip[] = [];
+    let clipCreated = false;
+
+    princes.forEach((princeIndex) => {
+      // Prince Index 0: Video audio as background
+      if (princeIndex === 0) {
+        clips.push({
+          V1,
+          V1Start,
+          V1Stop,
+          V1Speed,
+          A1,
+          A1Start,
+          A1Stop,
+          A1Speed,
+          A1Vol: tracks[kingIndex].volume / 100,
+          isA2: true,
+          A2: V1, // Video audio as prince
+          A2Start: V1Start,
+          A2Stop: V1Stop,
+          A2Speed: V1Speed,
+          A2Vol: tracks[princeIndex].volume / 100,
+          subtitle,
+          Comment: `Segment ${segmentIndex}: King ${kingIndex} with voiceover ${princeIndex}`,
+        });
+        clipCreated = true;
+      }
+      // Prince Index 1: Careful speech as background
+      else if (princeIndex === 1 && segment.carefulSpeechFile) {
+        const A2 = segment.carefulSpeechFile;
+        const A2Start = 0;
+        const A2Stop = segment.end - segment.start;
+        const A2Speed = (A2Stop - A2Start) / kingLen; // Adjust to match king duration
+
+        clips.push({
+          V1,
+          V1Start,
+          V1Stop,
+          V1Speed,
+          A1,
+          A1Start,
+          A1Stop,
+          A1Speed,
+          A1Vol: tracks[kingIndex].volume / 100,
+          isA2: true,
+          A2,
+          A2Start,
+          A2Stop,
+          A2Speed,
+          A2Vol: tracks[princeIndex].volume / 100,
+          subtitle,
+          Comment: `Segment ${segmentIndex}: King ${kingIndex} with voiceover ${princeIndex}`,
+        });
+        clipCreated = true;
+      }
+      // Prince Index 2: Oral translation as background
+      else if (princeIndex === 2 && segment.oralTranslationFile) {
+        const A2 = segment.oralTranslationFile;
+        const A2Start = 0;
+        const A2Stop = segment.end - segment.start;
+        const A2Speed = (A2Stop - A2Start) / kingLen; // Adjust to match king duration
+
+        clips.push({
+          V1,
+          V1Start,
+          V1Stop,
+          V1Speed,
+          A1,
+          A1Start,
+          A1Stop,
+          A1Speed,
+          A1Vol: tracks[kingIndex].volume / 100,
+          isA2: true,
+          A2,
+          A2Start,
+          A2Stop,
+          A2Speed,
+          A2Vol: tracks[princeIndex].volume / 100,
+          subtitle,
+          Comment: `Segment ${segmentIndex}: King ${kingIndex} with voiceover ${princeIndex}`,
+        });
+        clipCreated = true;
+      }
+    });
+
+    // Fallback: if no prince audio available, create clip with only king
+    if (!clipCreated) {
+      clips.push({
+        V1,
+        V1Start,
+        V1Stop,
+        V1Speed,
+        A1,
+        A1Start,
+        A1Stop,
+        A1Speed,
+        A1Vol: tracks[kingIndex].volume / 100,
+        isA2: false,
+        subtitle,
+        Comment: `Segment ${segmentIndex}: King ${kingIndex} (no voiceover)`,
       });
     }
 
@@ -227,342 +543,228 @@ export class FFmpegService {
   }
 
   /**
-   * Process audio tracks with kings/princes logic
+   * Get subtitle text for king track
    */
-  private async processAudioTracks(
-    segmentClips: string[],
-    segments: AnnotationSegment[],
-    tracks: AudioTrack[],
-    kingsPrincesMode: KingsPrincesMode,
-    settings: ExportSettings,
-    tempDir: string,
-    onProgress: ProgressCallback
-  ): Promise<string[]> {
-    const processedClips: string[] = [];
-
-    // Get active (non-muted) tracks
-    const activeTracks = tracks.filter((t) => !t.muted && t.volume > 0);
-
-    if (activeTracks.length === 0) {
-      // No audio processing needed, just copy clips
-      return segmentClips;
+  private getSubtitleForKing(segment: AnnotationSegment, kingIndex: number): string {
+    if (kingIndex <= 1) {
+      // Kings 0-1: Show transcription
+      return segment.transcription || "";
+    } else if (kingIndex === 2) {
+      // King 2: Show translation
+      return segment.translation || "";
     }
-
-    for (let i = 0; i < segmentClips.length; i++) {
-      const segment = segments[i];
-      const inputClip = segmentClips[i];
-      const outputPath = path.join(tempDir, `processed_${i}.mp4`);
-
-      // Build FFmpeg filter for audio mixing
-      const audioFilters = await this.buildAudioMixFilter(
-        segment,
-        activeTracks,
-        kingsPrincesMode,
-        tempDir
-      );
-
-      if (audioFilters.length === 0) {
-        // No additional audio processing, copy as is
-        processedClips.push(inputClip);
-        continue;
-      }
-
-      // Apply audio mixing
-      const args = ["-i", inputClip];
-
-      // Add additional audio inputs (careful speech, translation)
-      const additionalInputs: string[] = [];
-      if (segment.carefulSpeechFile && fs.existsSync(segment.carefulSpeechFile)) {
-        args.push("-i", segment.carefulSpeechFile);
-        additionalInputs.push(segment.carefulSpeechFile);
-      }
-      if (segment.oralTranslationFile && fs.existsSync(segment.oralTranslationFile)) {
-        args.push("-i", segment.oralTranslationFile);
-        additionalInputs.push(segment.oralTranslationFile);
-      }
-
-      // Build filter complex for audio mixing
-      const filterComplex = this.buildFilterComplex(
-        activeTracks,
-        kingsPrincesMode,
-        additionalInputs.length
-      );
-
-      args.push(
-        "-filter_complex", filterComplex,
-        "-map", "0:v",  // Keep video from first input
-        "-map", "[amix]", // Use mixed audio
-        "-c:v", "copy",  // Copy video stream
-        "-c:a", "aac",   // Encode audio as AAC
-        "-b:a", `${settings.audioBitrate}k`,
-        outputPath
-      );
-
-      await this.runFFmpeg(args);
-      processedClips.push(outputPath);
-
-      const progress = 40 + (20 * (i + 1)) / segmentClips.length;
-      onProgress({
-        stage: "Processing Audio",
-        percent: progress,
-        message: `Processed audio for segment ${i + 1}/${segmentClips.length}`,
-      });
-    }
-
-    return processedClips;
+    return "";
   }
 
   /**
-   * Build audio mix filter for segment
+   * Process a single clip with FFmpeg
    */
-  private async buildAudioMixFilter(
-    segment: AnnotationSegment,
-    activeTracks: AudioTrack[],
-    kingsPrincesMode: KingsPrincesMode,
+  private async processClip(
+    clip: VideoClip,
+    clipIndex: number,
     tempDir: string
-  ): Promise<string[]> {
-    // This will be expanded based on which tracks have files
-    const filters: string[] = [];
+  ): Promise<string> {
+    const outputPath = path.join(tempDir, `clip_${clipIndex}.mp4`);
 
-    // Check which optional tracks exist
-    const hasCarefulSpeech = segment.carefulSpeechFile && fs.existsSync(segment.carefulSpeechFile);
-    const hasTranslation = segment.oralTranslationFile && fs.existsSync(segment.oralTranslationFile);
+    // Build FFmpeg command
+    const args: string[] = [
+      // Video input
+      "-ss", clip.V1Start.toString(),
+      "-t", (clip.V1Stop - clip.V1Start).toString(),
+      "-i", clip.V1,
+    ];
 
-    return filters;
+    // Primary audio input (if different from video)
+    if (clip.A1 !== clip.V1) {
+      args.push(
+        "-ss", clip.A1Start.toString(),
+        "-t", (clip.A1Stop - clip.A1Start).toString(),
+        "-i", clip.A1
+      );
+    }
+
+    // Secondary audio input (prince)
+    if (clip.isA2 && clip.A2) {
+      args.push(
+        "-ss", (clip.A2Start || 0).toString(),
+        "-t", ((clip.A2Stop || 0) - (clip.A2Start || 0)).toString(),
+        "-i", clip.A2
+      );
+    }
+
+    // Build filter complex for speed adjustments and mixing
+    const filterComplex = this.buildClipFilter(clip);
+
+    args.push(
+      "-filter_complex", filterComplex,
+      "-map", "[v]",
+      "-map", "[amix]",
+      "-c:v", "libx264",
+      "-crf", "18",
+      "-preset", "medium",
+      "-c:a", "aac",
+      "-b:a", "192k",
+      "-y",
+      outputPath
+    );
+
+    await this.runFFmpeg(args);
+    return outputPath;
   }
 
   /**
-   * Build FFmpeg filter_complex for audio mixing with kings/princes logic
+   * Build FFmpeg filter for a clip
    */
-  private buildFilterComplex(
-    activeTracks: AudioTrack[],
-    kingsPrincesMode: KingsPrincesMode,
-    additionalInputCount: number
-  ): string {
+  private buildClipFilter(clip: VideoClip): string {
     const filters: string[] = [];
-    const inputIndex = 0;
+    const audioInputs: string[] = [];
 
-    // Process each active track
-    activeTracks.forEach((track, trackIndex) => {
-      const volume = track.volume / 100; // Convert 0-100 to 0-1
+    // Video speed adjustment
+    if (clip.V1Speed !== 1.0) {
+      filters.push(`[0:v]setpts=PTS/${clip.V1Speed}[v]`);
+    } else {
+      filters.push(`[0:v]copy[v]`);
+    }
 
-      // Determine playback speed based on kings/princes logic
-      let speed = 1.0;
-      if (kingsPrincesMode.useKingsPrincesLogic && !track.isKing) {
-        speed = 0.75; // Princes play at 75% speed
+    // Primary audio (A1)
+    const a1Input = clip.A1 === clip.V1 ? "0:a" : "1:a";
+    let a1Filter = `[${a1Input}]`;
+
+    if (clip.A1Speed !== 1.0) {
+      a1Filter += `atempo=${Math.min(2.0, Math.max(0.5, clip.A1Speed))},`;
+    }
+    a1Filter += `volume=${clip.A1Vol}[a1]`;
+    filters.push(a1Filter);
+    audioInputs.push("[a1]");
+
+    // Secondary audio (A2 - prince)
+    if (clip.isA2 && clip.A2) {
+      const a2InputIndex = clip.A1 === clip.V1 ? 1 : 2;
+      let a2Filter = `[${a2InputIndex}:a]`;
+
+      if ((clip.A2Speed || 1.0) !== 1.0) {
+        a2Filter += `atempo=${Math.min(2.0, Math.max(0.5, clip.A2Speed || 1.0))},`;
       }
+      a2Filter += `volume=${clip.A2Vol || 1.0}[a2]`;
+      filters.push(a2Filter);
+      audioInputs.push("[a2]");
+    }
 
-      const actualInputIndex = trackIndex > 0 ? inputIndex + trackIndex : 0;
-
-      // Build filter chain for this track
-      let filter = `[${actualInputIndex}:a]`;
-
-      // Apply speed adjustment if needed
-      if (speed !== 1.0) {
-        filter += `atempo=${speed}`;
-      }
-
-      // Apply volume
-      if (volume !== 1.0 || speed !== 1.0) {
-        if (speed !== 1.0) filter += ",";
-        filter += `volume=${volume}`;
-      }
-
-      filter += `[a${trackIndex}]`;
-      filters.push(filter);
-    });
-
-    // Mix all processed tracks
-    const mixInputs = activeTracks.map((_, i) => `[a${i}]`).join("");
-    filters.push(`${mixInputs}amix=inputs=${activeTracks.length}:duration=first[amix]`);
+    // Mix audio
+    if (audioInputs.length > 1) {
+      filters.push(`${audioInputs.join("")}amix=inputs=${audioInputs.length}:duration=first[amix]`);
+    } else {
+      filters.push(`${audioInputs[0]}anull[amix]`);
+    }
 
     return filters.join(";");
   }
 
   /**
-   * Create subtitle file in ASS format
-   */
-  private async createSubtitleFile(
-    segments: AnnotationSegment[],
-    subtitleLanguage: "transcription" | "translation" | "both",
-    tempDir: string
-  ): Promise<string> {
-    const subtitlePath = path.join(tempDir, "subtitles.ass");
-
-    // ASS file header
-    let assContent = `[Script Info]
-Title: Lameta Export
-ScriptType: v4.00+
-WrapStyle: 0
-ScaledBorderAndShadow: yes
-YCbCr Matrix: None
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Transcription,Arial,24,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,1,2,10,10,10,1
-Style: Translation,Arial,20,&H00FFFF00,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,1,8,10,10,10,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-`;
-
-    // Calculate cumulative time for each segment
-    let cumulativeTime = 0;
-
-    for (const segment of segments) {
-      const duration = segment.end - segment.start;
-      const startTime = this.formatAssTime(cumulativeTime);
-      const endTime = this.formatAssTime(cumulativeTime + duration);
-
-      if (subtitleLanguage === "transcription" || subtitleLanguage === "both") {
-        const text = segment.transcription || "";
-        assContent += `Dialogue: 0,${startTime},${endTime},Transcription,,0,0,0,,${this.escapeAssText(text)}\n`;
-      }
-
-      if (subtitleLanguage === "translation" || subtitleLanguage === "both") {
-        const text = segment.translation || "";
-        assContent += `Dialogue: 0,${startTime},${endTime},Translation,,0,0,0,,${this.escapeAssText(text)}\n`;
-      }
-
-      cumulativeTime += duration;
-    }
-
-    await fs.writeFile(subtitlePath, assContent, "utf-8");
-    return subtitlePath;
-  }
-
-  /**
-   * Format time in ASS format (H:MM:SS.CC)
-   */
-  private formatAssTime(seconds: number): string {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const centisecs = Math.floor((seconds % 1) * 100);
-
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${centisecs.toString().padStart(2, "0")}`;
-  }
-
-  /**
-   * Escape text for ASS subtitles
-   */
-  private escapeAssText(text: string): string {
-    return text.replace(/\n/g, "\\N").replace(/\{/g, "\\{").replace(/\}/g, "\\}");
-  }
-
-  /**
-   * Concatenate video clips
+   * Concatenate clips
    */
   private async concatenateClips(
-    clips: string[],
+    clipFiles: string[],
     format: ExportFormat,
-    tempDir: string,
-    onProgress: ProgressCallback
+    tempDir: string
   ): Promise<string> {
     const concatListPath = path.join(tempDir, "concat.txt");
-    const outputPath = path.join(tempDir, format === ExportFormat.Video ? "concatenated.mp4" : "concatenated.mp3");
+    const outputPath = path.join(tempDir, "concatenated.mp4");
 
-    // Create concat demuxer file
-    const concatList = clips.map((clip) => `file '${clip.replace(/'/g, "'\\''")}'`).join("\n");
+    const concatList = clipFiles.map((clip) => `file '${clip.replace(/'/g, "'\\''")}'`).join("\n");
     await fs.writeFile(concatListPath, concatList, "utf-8");
 
-    const args = [
+    await this.runFFmpeg([
       "-f", "concat",
       "-safe", "0",
       "-i", concatListPath,
-    ];
-
-    if (format === ExportFormat.Video) {
-      args.push("-c", "copy");
-    } else {
-      args.push("-vn", "-c:a", "libmp3lame");
-    }
-
-    args.push(outputPath);
-
-    await this.runFFmpeg(args);
+      "-c", "copy",
+      "-y",
+      outputPath,
+    ]);
 
     return outputPath;
   }
 
   /**
-   * Finalize export with subtitle burning and quality settings
+   * Finalize export with subtitles
    */
   private async finalizeExport(
     inputFile: string,
-    subtitleFile: string | undefined,
+    clips: VideoClip[],
     settings: ExportSettings,
+    tempDir: string,
     onProgress: ProgressCallback
   ): Promise<void> {
     const args = ["-i", inputFile];
 
-    if (settings.format === ExportFormat.Video) {
-      // Video export
-      if (subtitleFile) {
-        // Burn subtitles into video
-        args.push(
-          "-vf", `ass=${subtitleFile.replace(/\\/g, "\\\\").replace(/:/g, "\\:")}`,
-          "-c:v", "libx264",
-          "-crf", settings.videoQuality.toString(),
-          "-preset", "medium",
-          "-c:a", "copy"
-        );
-      } else {
-        // No subtitles, just re-encode if needed
-        args.push(
-          "-c:v", "libx264",
-          "-crf", settings.videoQuality.toString(),
-          "-preset", "medium",
-          "-c:a", "copy"
-        );
-      }
-    } else {
-      // Audio-only export
+    if (settings.format === ExportFormat.Video && settings.includeSubtitles) {
+      const subtitleFile = await this.createSubtitleFile(clips, settings.subtitleLanguage, tempDir);
       args.push(
-        "-vn",
-        "-c:a", "libmp3lame",
-        "-b:a", `${settings.audioBitrate}k`
+        "-vf", `subtitles=${subtitleFile.replace(/\\/g, "\\\\").replace(/:/g, "\\:")}`,
+        "-c:v", "libx264",
+        "-crf", settings.videoQuality.toString(),
+        "-c:a", "copy"
       );
+    } else {
+      args.push("-c", "copy");
     }
 
     args.push("-y", settings.outputPath);
 
-    await this.runFFmpeg(args, (progress) => {
-      onProgress({
-        stage: "Finalizing",
-        percent: 85 + (progress * 0.15),
-        message: `Encoding final output... ${Math.round(progress)}%`,
-      });
+    await this.runFFmpeg(args);
+  }
+
+  /**
+   * Create SRT subtitle file
+   */
+  private async createSubtitleFile(
+    clips: VideoClip[],
+    subtitleLanguage: "transcription" | "translation" | "both",
+    tempDir: string
+  ): Promise<string> {
+    const srtPath = path.join(tempDir, "subtitles.srt");
+    let counter = 1;
+    let cumulativeTime = 0;
+    const entries: string[] = [];
+
+    clips.forEach((clip) => {
+      if (!clip.subtitle) return;
+
+      const duration = (clip.V1Stop - clip.V1Start) / clip.V1Speed;
+      const startTime = this.formatSrtTime(cumulativeTime);
+      const endTime = this.formatSrtTime(cumulativeTime + duration);
+
+      entries.push(`${counter++}\n${startTime} --> ${endTime}\n${clip.subtitle}\n`);
+      cumulativeTime += duration;
     });
+
+    await fs.writeFile(srtPath, entries.join("\n"), "utf-8");
+    return srtPath;
+  }
+
+  /**
+   * Format time for SRT (HH:MM:SS,mmm)
+   */
+  private formatSrtTime(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const millis = Math.floor((seconds % 1) * 1000);
+
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${millis.toString().padStart(3, "0")}`;
   }
 
   /**
    * Run FFmpeg command
    */
-  private runFFmpeg(args: string[], onProgress?: (percent: number) => void): Promise<void> {
+  private runFFmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn("ffmpeg", args);
-
       let stderr = "";
 
       ffmpeg.stderr.on("data", (data) => {
         stderr += data.toString();
-
-        // Parse progress from FFmpeg output
-        if (onProgress) {
-          const timeMatch = stderr.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1], 10);
-            const minutes = parseInt(timeMatch[2], 10);
-            const seconds = parseFloat(timeMatch[3]);
-            const currentTime = hours * 3600 + minutes * 60 + seconds;
-
-            // This is approximate - we don't know the total duration
-            // Could be improved by parsing duration from FFmpeg output
-            const percent = Math.min(currentTime / 10 * 100, 99);
-            onProgress(percent);
-          }
-        }
       });
 
       ffmpeg.on("close", (code) => {
