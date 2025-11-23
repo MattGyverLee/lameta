@@ -115,6 +115,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
 
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [state.autoSaveEnabled, state.hasUnsavedChanges]);
 
   /**
@@ -421,6 +422,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
             onDeleteSegment={handleDeleteSegment}
             onSplitSegment={handleSplitSegment}
             onMergeSegments={handleMergeSegments}
+            onSave={saveEafFile}
             isSegmenting={state.isSegmenting}
           />
         </TabPanel>

@@ -123,9 +123,7 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
     setIsReady(false);
 
     // Initialize WaveSurfer with Regions plugin
-    const regionsPlugin = RegionsPlugin.create({
-      dragSelection: false, // Disable drag-to-select
-    });
+    const regionsPlugin = RegionsPlugin.create();
 
     const ws = WaveSurfer.create({
       container,
@@ -150,8 +148,8 @@ export const useWaveSurfer = (options: UseWaveSurferOptions): UseWaveSurferRetur
       setCurrentTime(time);
     });
 
-    ws.on("seek", (progress: number) => {
-      setCurrentTime(ws.getDuration() * progress);
+    ws.on("interaction" as any, () => {
+      setCurrentTime(ws.getCurrentTime());
     });
 
     wavesurferRef.current = ws;

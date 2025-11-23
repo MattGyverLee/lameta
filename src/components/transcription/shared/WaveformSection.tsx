@@ -47,7 +47,7 @@ export const WaveformSection: React.FC<WaveformSectionProps> = ({
     waveColor: "#94c397",
     progressColor: "#e69664",
     height: 128,
-    onRegionClick,
+    onRegionClick: onSegmentClick,
     onRegionUpdate: onSegmentBoundaryChange,
     onReady: () => {
       console.log("Waveform ready");

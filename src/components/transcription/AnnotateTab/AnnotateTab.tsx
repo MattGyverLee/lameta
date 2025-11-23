@@ -7,6 +7,7 @@ import React from "react";
 import "./AnnotateTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
 import WaveformSection from "../shared/WaveformSection";
+import useKeyboardShortcuts from "../shared/useKeyboardShortcuts";
 import {
   AnnotationSegment,
   PlaybackState,
@@ -33,6 +34,7 @@ interface AnnotateTabProps {
   onDeleteSegment: () => void;
   onSplitSegment: () => void;
   onMergeSegments: () => void;
+  onSave: () => void;
 }
 
 /**
@@ -55,6 +57,7 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   onDeleteSegment,
   onSplitSegment,
   onMergeSegments,
+  onSave,
 }) => {
   /**
    * Handle segment click from waveform
@@ -64,15 +67,70 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   };
 
   /**
-   * Handle segment play (double-click)
+   * Handle segment play (double-click or F2 key)
    */
-  const handleSegmentPlay = (segmentId: string) => {
-    const segment = segments.find((s) => s.id === segmentId);
+  const handleSegmentPlay = (segmentId?: string) => {
+    const targetId = segmentId || selectedSegmentId;
+    if (!targetId) return;
+
+    const segment = segments.find((s) => s.id === targetId);
     if (segment) {
-      // TODO: Set loop region to segment boundaries and play
-      console.log(`Playing segment: ${segmentId}`);
+      // Seek to segment start
+      onProgress(segment.start);
+      // Play if not already playing
+      if (!playback.playing) {
+        onTogglePlay();
+      }
+      console.log(`Playing segment: ${targetId} (${segment.start}s - ${segment.end}s)`);
     }
   };
+
+  /**
+   * Navigate to next segment
+   */
+  const handleNextSegment = () => {
+    if (!selectedSegmentId || segments.length === 0) {
+      // Select first segment if none selected
+      if (segments.length > 0) {
+        onSegmentSelect(segments[0].id);
+      }
+      return;
+    }
+
+    const currentIndex = segments.findIndex((s) => s.id === selectedSegmentId);
+    if (currentIndex < segments.length - 1) {
+      onSegmentSelect(segments[currentIndex + 1].id);
+    }
+  };
+
+  /**
+   * Navigate to previous segment
+   */
+  const handlePreviousSegment = () => {
+    if (!selectedSegmentId || segments.length === 0) return;
+
+    const currentIndex = segments.findIndex((s) => s.id === selectedSegmentId);
+    if (currentIndex > 0) {
+      onSegmentSelect(segments[currentIndex - 1].id);
+    }
+  };
+
+  /**
+   * Enable keyboard shortcuts
+   */
+  useKeyboardShortcuts({
+    enabled: true,
+    onPlayPause: onTogglePlay,
+    onPlaySegment: () => handleSegmentPlay(),
+    onSave: onSave,
+    onAddSegment: onAddSegment,
+    onDeleteSegment: onDeleteSegment,
+    onSplitSegment: onSplitSegment,
+    onMergeSegments: onMergeSegments,
+    onNextSegment: handleNextSegment,
+    onPreviousSegment: handlePreviousSegment,
+    onAutoSegment: onStartSegmentation,
+  });
 
   return (
     <div className="annotate-tab">
@@ -93,16 +151,18 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           onClick={onStartSegmentation}
           disabled={isSegmenting}
           className="btn-segment"
+          title="Auto-segment audio (Ctrl+Shift+A)"
         >
           {isSegmenting ? "Segmenting..." : "Auto-Segment"}
         </button>
-        <button onClick={onAddSegment} className="btn-add-segment">
+        <button onClick={onAddSegment} className="btn-add-segment" title="Add new segment (Ctrl+N)">
           Add Segment
         </button>
         <button
           onClick={onDeleteSegment}
           disabled={!selectedSegmentId}
           className="btn-delete-segment"
+          title="Delete selected segment (Ctrl+D)"
         >
           Delete Segment
         </button>
@@ -110,6 +170,7 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           onClick={onSplitSegment}
           disabled={!selectedSegmentId}
           className="btn-split-segment"
+          title="Split segment at current time (Ctrl+T)"
         >
           Split Segment
         </button>
@@ -117,9 +178,13 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           onClick={onMergeSegments}
           disabled={!selectedSegmentId}
           className="btn-merge-segments"
+          title="Merge with next segment (Ctrl+M)"
         >
           Merge Segments
         </button>
+        <div className="keyboard-shortcuts-hint" style={{ marginLeft: "auto", fontSize: "0.85em", color: "#666" }}>
+          Shortcuts: Space=Play/Pause | F2=Play segment | Tab=Next | Ctrl+S=Save
+        </div>
       </div>
 
       {/* Waveform Section */}

@@ -72,6 +72,13 @@
   font-weight: bold;
 }
 
+.keyboard-shortcuts-hint {
+  display: flex;
+  align-items: center;
+  font-style: italic;
+  user-select: none;
+}
+
 /* Waveform Wrapper */
 .waveform-wrapper {
   flex: 0 0 auto;

@@ -5,7 +5,7 @@
 
 import xml2js from "xml2js";
 import fs from "fs";
-import { AnnotationSegment } from "../components/transcription/shared/types";
+import { AnnotationSegment } from "../../components/transcription/shared/types";
 
 /**
  * ELAN Annotation interface (simplified)
