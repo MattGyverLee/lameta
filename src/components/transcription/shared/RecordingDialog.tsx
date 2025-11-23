@@ -1,10 +1,12 @@
 /**
  * RecordingDialog - In-app audio recording for oral annotations
  * Records careful speech and oral translations for each segment
+ * Includes video/audio playback as a prompt using Prestige's relative clip time logic
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { OralAnnotationType } from "./types";
+import { OralAnnotationType, PlaybackState } from "./types";
+import VideoPlayerSection from "./VideoPlayerSection";
 import "./RecordingDialog.css";
 
 /**
@@ -16,6 +18,15 @@ export interface RecordingDialogProps {
 
   /** Segment text for reference */
   segmentText: string;
+
+  /** Segment start time in source media */
+  segmentStart: number;
+
+  /** Segment end time in source media */
+  segmentEnd: number;
+
+  /** Source media file path */
+  mediaFilePath: string;
 
   /** Type of recording (careful speech or translation) */
   recordingType: OralAnnotationType;
@@ -35,10 +46,14 @@ export interface RecordingDialogProps {
  *
  * Provides UI for recording oral annotations using MediaRecorder API.
  * Supports careful speech and oral translation recordings.
+ * Includes video playback with auto-looping segment using Prestige's relative clip time logic.
  */
 export const RecordingDialog: React.FC<RecordingDialogProps> = ({
   segmentId,
   segmentText,
+  segmentStart,
+  segmentEnd,
+  mediaFilePath,
   recordingType,
   isOpen,
   onSave,
@@ -50,6 +65,21 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Video playback state - auto-play and loop the segment
+  const [playback, setPlayback] = useState<PlaybackState>({
+    playing: true, // Auto-play when dialog opens
+    currentTime: segmentStart,
+    duration: 0,
+    playbackRate: 1.0,
+    volume: 0.5,
+    muted: false,
+    loop: true,
+    loopRegion: {
+      start: segmentStart,
+      end: segmentEnd,
+    },
+  });
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -187,6 +217,48 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
   };
 
   /**
+   * Handle video progress updates
+   */
+  const handleVideoProgress = (currentTime: number) => {
+    setPlayback((prev) => ({ ...prev, currentTime }));
+  };
+
+  /**
+   * Handle video duration loaded
+   */
+  const handleVideoDuration = (duration: number) => {
+    setPlayback((prev) => ({ ...prev, duration }));
+  };
+
+  /**
+   * Toggle video play/pause
+   */
+  const handleToggleVideoPlay = () => {
+    setPlayback((prev) => ({ ...prev, playing: !prev.playing }));
+  };
+
+  /**
+   * Reset video playback when dialog opens
+   */
+  useEffect(() => {
+    if (isOpen) {
+      setPlayback({
+        playing: true,
+        currentTime: segmentStart,
+        duration: 0,
+        playbackRate: 1.0,
+        volume: 0.5,
+        muted: false,
+        loop: true,
+        loopRegion: {
+          start: segmentStart,
+          end: segmentEnd,
+        },
+      });
+    }
+  }, [isOpen, segmentStart, segmentEnd]);
+
+  /**
    * Save recording
    */
   const handleSave = () => {
@@ -259,6 +331,31 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
         <div className="segment-reference">
           <strong>Segment Text:</strong>
           <p>{segmentText || <em>(No text)</em>}</p>
+        </div>
+
+        {/* Video Prompt Section */}
+        <div className="video-prompt-section">
+          <strong className="section-label">Source Segment (Auto-Loop):</strong>
+          <VideoPlayerSection
+            url={mediaFilePath}
+            playback={playback}
+            onProgress={handleVideoProgress}
+            onDuration={handleVideoDuration}
+            onPlayPause={handleToggleVideoPlay}
+            className="recording-video-player"
+          />
+          <div className="video-controls">
+            <button
+              onClick={handleToggleVideoPlay}
+              className="btn-video-control"
+            >
+              {playback.playing ? "⏸ Pause Video" : "▶ Play Video"}
+            </button>
+            <span className="segment-time-info">
+              Segment: {segmentStart.toFixed(1)}s - {segmentEnd.toFixed(1)}s
+              (Duration: {(segmentEnd - segmentStart).toFixed(1)}s)
+            </span>
+          </div>
         </div>
 
         {/* Error Message */}

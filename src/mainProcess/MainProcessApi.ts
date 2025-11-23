@@ -5,6 +5,13 @@ import { XMLValidationResult } from "xmllint-wasm";
 
 import { validateImdiAsyncInternal } from "./validateImdi";
 import { mainWindow } from "./main";
+import {
+  ffmpegService,
+  ExportSettings,
+  AnnotationSegment,
+  AudioTrack,
+  KingsPrincesMode,
+} from "./ffmpegService";
 
 if (process.env.VITEST_POOL_ID && process.env.VITEST_WORKER_ID) {
   throw new Error(
@@ -79,6 +86,32 @@ export class MainProcessApi {
     });
 
     //shell.openPath(path);
+  }
+
+  /**
+   * Export video/audio with FFmpeg
+   * Progress updates are sent via IPC 'export:progress' channel
+   */
+  public async exportMedia(
+    mediaFilePath: string,
+    segments: AnnotationSegment[],
+    tracks: AudioTrack[],
+    kingsPrincesMode: KingsPrincesMode,
+    settings: ExportSettings
+  ): Promise<void> {
+    return ffmpegService.exportMedia(
+      mediaFilePath,
+      segments,
+      tracks,
+      kingsPrincesMode,
+      settings,
+      (progress) => {
+        // Send progress updates to renderer via IPC
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.send("export:progress", progress);
+        }
+      }
+    );
   }
 }
 

@@ -332,6 +332,13 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         segmentText={
           segments.find((s) => s.id === recordingDialog.segmentId)?.text || ""
         }
+        segmentStart={
+          segments.find((s) => s.id === recordingDialog.segmentId)?.start || 0
+        }
+        segmentEnd={
+          segments.find((s) => s.id === recordingDialog.segmentId)?.end || 0
+        }
+        mediaFilePath={mediaFilePath}
         recordingType={recordingDialog.recordingType}
         isOpen={recordingDialog.isOpen}
         onSave={onSaveRecording}

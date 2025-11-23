@@ -86,6 +86,60 @@
   color: #999;
 }
 
+/* Video Prompt Section */
+.video-prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--pane__interstitial--color);
+  border-radius: 4px;
+}
+
+.video-prompt-section .section-label {
+  font-size: 14px;
+  color: #333;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.recording-video-player {
+  width: 100%;
+  max-height: 300px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.btn-video-control {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--link--color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-video-control:hover {
+  background: #1a5685;
+}
+
+.segment-time-info {
+  font-size: 12px;
+  color: #666;
+  font-family: monospace;
+}
+
 /* Error Message */
 .error-message {
   padding: 12px;

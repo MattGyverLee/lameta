@@ -70,7 +70,7 @@ export interface AudioTrack {
   muted: boolean;
 
   /** Whether this track is a "king" (volume >= 84%) or "prince" */
-  isKing?: boolean;
+  isKing: boolean;
 }
 
 /**

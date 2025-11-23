@@ -3,11 +3,14 @@
  * Provides synchronized playback of source, careful speech, and translation tracks
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./PreviewTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
 import MultiTrackWaveform, { KingsPrincesMode } from "./MultiTrackWaveform";
 import ExportDialog, { ExportSettings } from "./ExportDialog";
+import ExportProgressDialog, { ExportProgress } from "./ExportProgressDialog";
+import { mainProcessApi } from "../../../mainProcess/MainProcessApiAccess";
+import { ipcRenderer } from "electron";
 import {
   AnnotationSegment,
   AudioTrack,
@@ -77,6 +80,15 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   // Export dialog state
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
+  // Export progress state
+  const [exportProgressOpen, setExportProgressOpen] = useState(false);
+  const [exportProgress, setExportProgress] = useState<ExportProgress>({
+    stage: "Preparing",
+    percent: 0,
+    message: "Initializing export...",
+  });
+  const [exportError, setExportError] = useState<string | undefined>(undefined);
+
   /**
    * Update track volume by index
    */
@@ -125,14 +137,63 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   /**
    * Handle export
    */
-  const handleExport = (settings: ExportSettings) => {
-    console.log("Starting export with settings:", settings);
-    console.log("Kings/Princes mode:", kingsPrincesMode);
-    console.log("Segments:", segments);
-    console.log("Tracks:", tracks);
-    // TODO: Implement FFmpeg export via Electron main process
-    // This will be handled by a separate service that communicates with FFmpeg
-    alert("Export functionality requires FFmpeg integration via Electron main process. Implementation placeholder.");
+  const handleExport = async (settings: ExportSettings) => {
+    try {
+      // Close export settings dialog
+      setExportDialogOpen(false);
+
+      // Open progress dialog
+      setExportProgressOpen(true);
+      setExportError(undefined);
+      setExportProgress({
+        stage: "Preparing",
+        percent: 0,
+        message: "Initializing export...",
+      });
+
+      // Call main process to export
+      await mainProcessApi.exportMedia(
+        mediaFilePath,
+        segments,
+        tracks,
+        kingsPrincesMode,
+        settings
+      );
+
+      // Export completed successfully
+      console.log("Export completed successfully");
+    } catch (error) {
+      console.error("Export failed:", error);
+      setExportError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  /**
+   * Setup IPC listener for export progress
+   */
+  useEffect(() => {
+    const handleProgress = (_event: any, progress: ExportProgress) => {
+      setExportProgress(progress);
+    };
+
+    ipcRenderer.on("export:progress", handleProgress);
+
+    return () => {
+      ipcRenderer.removeListener("export:progress", handleProgress);
+    };
+  }, []);
+
+  /**
+   * Close progress dialog
+   */
+  const handleCloseProgress = () => {
+    setExportProgressOpen(false);
+    setExportError(undefined);
+    setExportProgress({
+      stage: "Preparing",
+      percent: 0,
+      message: "Initializing export...",
+    });
   };
 
   /**
@@ -202,6 +263,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         kingsPrincesMode={kingsPrincesMode}
         onExport={handleExport}
         onClose={() => setExportDialogOpen(false)}
+      />
+
+      {/* Export Progress Dialog */}
+      <ExportProgressDialog
+        isOpen={exportProgressOpen}
+        progress={exportProgress}
+        error={exportError}
+        onClose={handleCloseProgress}
       />
 
       {/* Playback Controls */}
