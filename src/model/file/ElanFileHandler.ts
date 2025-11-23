@@ -51,16 +51,28 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
     }
 
     // Extract annotations from tiers
+    // Accept external .eaf files as-is with flexible tier matching
     const segments: AnnotationSegment[] = [];
     if (elanDoc.TIER) {
       const tiers = Array.isArray(elanDoc.TIER) ? elanDoc.TIER : [elanDoc.TIER];
 
-      // Find transcription tier (typically first tier or tier named "default")
+      // Find transcription tier (flexible matching for external files)
       const transcriptionTier = tiers.find(
         (tier: any) =>
+          tier.$.TIER_ID === "Transcription" || // SayMore/Lameta
           tier.$.TIER_ID === "default" ||
           tier.$.TIER_ID === "transcription" ||
-          tier === tiers[0]
+          tier.$.TIER_ID.toLowerCase().includes("transcript") ||
+          tier === tiers[0] // Fallback to first tier
+      );
+
+      // Find translation tier (flexible matching for external files)
+      const translationTier = tiers.find(
+        (tier: any) =>
+          tier.$.TIER_ID === "Translation" || // Lameta simple
+          tier.$.TIER_ID === "Phrase Free Translation" || // SayMore full
+          tier.$.TIER_ID === "translation" ||
+          tier.$.TIER_ID.toLowerCase().includes("translat")
       );
 
       if (transcriptionTier?.ANNOTATION) {
@@ -83,8 +95,23 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
               start,
               end,
               text,
-              translation: "",
+              translation: "", // Will be filled from translation tier
             });
+          }
+        });
+      }
+
+      // Extract translation annotations and match to segments
+      if (translationTier?.ANNOTATION) {
+        const translations = Array.isArray(translationTier.ANNOTATION)
+          ? translationTier.ANNOTATION
+          : [translationTier.ANNOTATION];
+
+        translations.forEach((ann: any, index: number) => {
+          const alignableAnn = ann.ALIGNABLE_ANNOTATION?.[0];
+          if (alignableAnn && segments[index]) {
+            const translationText = alignableAnn.ANNOTATION_VALUE?.[0] || "";
+            segments[index].translation = translationText;
           }
         });
       }
@@ -100,6 +127,7 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
 
 /**
  * Save segments to an ELAN .eaf file
+ * Uses SayMore's simple tier naming: "Transcription" and "Translation"
  * @param filePath Path where to save the .eaf file
  * @param segments Array of annotation segments to save
  * @param mediaFilePath Path to the media file (referenced in ELAN)
@@ -138,14 +166,7 @@ export async function saveElanFile(
         TIME_ORDER: {
           TIME_SLOT: [] as any[],
         },
-        TIER: {
-          $: {
-            DEFAULT_LOCALE: "en",
-            LINGUISTIC_TYPE_REF: "default-lt",
-            TIER_ID: "default",
-          },
-          ANNOTATION: [] as any[],
-        },
+        TIER: [] as any[], // Multiple tiers like SayMore
         LINGUISTIC_TYPE: {
           $: {
             GRAPHIC_REFERENCES: "false",
@@ -170,6 +191,26 @@ export async function saveElanFile(
       },
     };
 
+    // Create transcription tier (SayMore naming)
+    const transcriptionTier: any = {
+      $: {
+        DEFAULT_LOCALE: "en",
+        LINGUISTIC_TYPE_REF: "default-lt",
+        TIER_ID: "Transcription",
+      },
+      ANNOTATION: [] as any[],
+    };
+
+    // Create translation tier (SayMore naming - simplified)
+    const translationTier: any = {
+      $: {
+        DEFAULT_LOCALE: "en",
+        LINGUISTIC_TYPE_REF: "default-lt",
+        TIER_ID: "Translation",
+      },
+      ANNOTATION: [] as any[],
+    };
+
     // Create time slots and annotations
     segments.forEach((segment, index) => {
       const startSlotId = `ts${index * 2 + 1}`;
@@ -189,18 +230,34 @@ export async function saveElanFile(
         },
       });
 
-      // Add annotation
-      elanDoc.ANNOTATION_DOCUMENT.TIER.ANNOTATION.push({
+      // Add transcription annotation
+      transcriptionTier.ANNOTATION.push({
         ALIGNABLE_ANNOTATION: {
           $: {
-            ANNOTATION_ID: segment.id,
+            ANNOTATION_ID: `${segment.id}_tx`,
             TIME_SLOT_REF1: startSlotId,
             TIME_SLOT_REF2: endSlotId,
           },
           ANNOTATION_VALUE: segment.text || "",
         },
       });
+
+      // Add translation annotation (if present)
+      translationTier.ANNOTATION.push({
+        ALIGNABLE_ANNOTATION: {
+          $: {
+            ANNOTATION_ID: `${segment.id}_tr`,
+            TIME_SLOT_REF1: startSlotId,
+            TIME_SLOT_REF2: endSlotId,
+          },
+          ANNOTATION_VALUE: segment.translation || "",
+        },
+      });
     });
+
+    // Add tiers to document (SayMore style: Transcription, then Translation)
+    elanDoc.ANNOTATION_DOCUMENT.TIER.push(transcriptionTier);
+    elanDoc.ANNOTATION_DOCUMENT.TIER.push(translationTier);
 
     // Build XML
     const builder = new xml2js.Builder({

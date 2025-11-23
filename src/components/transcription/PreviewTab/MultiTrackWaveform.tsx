@@ -103,16 +103,16 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
   };
 
   /**
-   * Get track label
+   * Get track label (SayMore simple naming)
    */
   const getTrackLabel = (trackIndex: number): string => {
     switch (trackIndex) {
       case 0:
         return "Source Audio";
       case 1:
-        return "Careful Speech";
+        return "Careful"; // SayMore simple naming
       case 2:
-        return "Oral Translation";
+        return "Translation"; // SayMore simple naming
       default:
         return `Track ${trackIndex + 1}`;
     }

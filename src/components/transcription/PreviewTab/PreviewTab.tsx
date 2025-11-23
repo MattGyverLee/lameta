@@ -55,7 +55,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     },
     {
       id: "careful",
-      label: "Careful Speech",
+      label: "Careful", // SayMore simple naming
       url: "", // Will be populated from segment files
       volume: 60,
       muted: false,
@@ -63,7 +63,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     },
     {
       id: "translation",
-      label: "Oral Translation",
+      label: "Translation", // SayMore simple naming
       url: "", // Will be populated from segment files
       volume: 60,
       muted: false,
