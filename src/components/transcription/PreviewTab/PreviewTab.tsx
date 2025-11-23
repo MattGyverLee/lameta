@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import "./PreviewTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
+import MultiTrackWaveform, { KingsPrincesMode } from "./MultiTrackWaveform";
 import {
   AnnotationSegment,
   AudioTrack,
@@ -66,17 +67,23 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     },
   ]);
 
+  // Kings/Princes mode configuration
+  const [kingsPrincesMode, setKingsPrincesMode] = useState<KingsPrincesMode>({
+    useKingsPrincesLogic: true, // Default to traditional kings/princes mode
+    kingThreshold: 84, // 84% volume threshold
+  });
+
   /**
-   * Update track volume
+   * Update track volume by index
    */
-  const handleVolumeChange = (trackId: string, volume: number) => {
+  const handleVolumeChange = (trackIndex: number, volume: number) => {
     setTracks((prevTracks) =>
-      prevTracks.map((track) =>
-        track.id === trackId
+      prevTracks.map((track, index) =>
+        index === trackIndex
           ? {
               ...track,
               volume,
-              isKing: volume >= 84, // King threshold
+              isKing: volume >= kingsPrincesMode.kingThreshold,
             }
           : track
       )
@@ -84,14 +91,24 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   };
 
   /**
-   * Toggle track mute
+   * Update track mute state by index
    */
-  const handleMuteToggle = (trackId: string) => {
+  const handleMuteChange = (trackIndex: number, muted: boolean) => {
     setTracks((prevTracks) =>
-      prevTracks.map((track) =>
-        track.id === trackId ? { ...track, muted: !track.muted } : track
+      prevTracks.map((track, index) =>
+        index === trackIndex ? { ...track, muted } : track
       )
     );
+  };
+
+  /**
+   * Toggle kings/princes mode
+   */
+  const toggleKingsPrincesMode = () => {
+    setKingsPrincesMode((prev) => ({
+      ...prev,
+      useKingsPrincesLogic: !prev.useKingsPrincesLogic,
+    }));
   };
 
   /**
@@ -121,78 +138,32 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         />
       </div>
 
-      {/* Multi-Track Waveform Section */}
-      <div className="multi-track-section">
-        <h3>Multi-Layer Playback</h3>
-        <div className="track-waveforms">
-          {tracks.map((track) => (
-            <div key={track.id} className="track-row">
-              <div className="track-info">
-                <label className="track-label">
-                  {track.label}
-                  {track.isKing && <span className="king-badge">👑 King</span>}
-                  {!track.isKing && track.volume > 0 && (
-                    <span className="prince-badge">🤴 Prince</span>
-                  )}
-                </label>
-              </div>
-              <div className="track-waveform-placeholder">
-                <p>Waveform for {track.label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Mode Toggle */}
+      <div className="mode-toggle-section">
+        <button onClick={toggleKingsPrincesMode} className="btn-toggle-mode">
+          {kingsPrincesMode.useKingsPrincesLogic
+            ? "Switch to All Kings Mode"
+            : "Switch to Kings & Princes Mode"}
+        </button>
+        <p className="mode-description">
+          {kingsPrincesMode.useKingsPrincesLogic
+            ? "Current: Kings & Princes - Tracks ≥84% play at normal speed, tracks <84% play slower"
+            : "Current: All Kings - All enabled tracks play at normal speed"}
+        </p>
       </div>
 
-      {/* Volume Controls */}
-      <div className="volume-controls-section">
-        <h3>Volume Controls</h3>
-        <div className="volume-controls">
-          {tracks.map((track) => (
-            <div key={track.id} className="volume-control">
-              <label className="volume-label">
-                <input
-                  type="checkbox"
-                  checked={!track.muted}
-                  onChange={() => handleMuteToggle(track.id)}
-                />
-                {track.label}
-              </label>
-              <div className="volume-slider-container">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={track.volume}
-                  onChange={(e) =>
-                    handleVolumeChange(track.id, parseInt(e.target.value))
-                  }
-                  disabled={track.muted}
-                  className="volume-slider"
-                />
-                <span className="volume-value">{track.volume}%</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Kings and Princes Info */}
-        <div className="kings-princes-info">
-          <div className="info-row">
-            <strong>Kings (≥84%):</strong>{" "}
-            {kings.length > 0 ? kings.map((t) => t.label).join(", ") : "None"}
-          </div>
-          <div className="info-row">
-            <strong>Princes (&lt;84%):</strong>{" "}
-            {princes.length > 0 ? princes.map((t) => t.label).join(", ") : "None"}
-          </div>
-          <div className="info-note">
-            <em>
-              Kings play at normal speed. Princes are speed-adjusted to match
-              kings during export.
-            </em>
-          </div>
-        </div>
+      {/* Multi-Track Waveform Section */}
+      <div className="multi-track-section">
+        <MultiTrackWaveform
+          tracks={tracks}
+          playing={playback.playing}
+          currentTime={playback.currentTime}
+          playbackRate={playback.playbackRate}
+          kingsPrincesMode={kingsPrincesMode}
+          onVolumeChange={handleVolumeChange}
+          onMuteChange={handleMuteChange}
+          onProgress={onProgress}
+        />
       </div>
 
       {/* Export Section */}
