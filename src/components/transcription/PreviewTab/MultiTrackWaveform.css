@@ -101,7 +101,7 @@
   flex-wrap: wrap;
 }
 
-.mute-control {
+.enabled-control {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -110,7 +110,7 @@
   user-select: none;
 }
 
-.mute-control input[type="checkbox"] {
+.enabled-control input[type="checkbox"] {
   cursor: pointer;
 }
 

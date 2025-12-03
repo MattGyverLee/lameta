@@ -233,6 +233,16 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
   };
 
   /**
+   * Update playback rate (speed)
+   */
+  const handlePlaybackRateChange = (playbackRate: number) => {
+    setState((prev) => ({
+      ...prev,
+      playback: { ...prev.playback, playbackRate },
+    }));
+  };
+
+  /**
    * Update a segment
    */
   const handleSegmentUpdate = (
@@ -526,6 +536,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
           onTogglePlay={handleTogglePlay}
           onProgress={handleProgress}
           onDuration={handleDuration}
+          onPlaybackRateChange={handlePlaybackRateChange}
         />
       </div>
     );
@@ -546,6 +557,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
           onTogglePlay={handleTogglePlay}
           onProgress={handleProgress}
           onDuration={handleDuration}
+          onPlaybackRateChange={handlePlaybackRateChange}
           onStartSegmentation={handleStartSegmentation}
           onAddSegment={handleAddSegment}
           onDeleteSegment={handleDeleteSegment}

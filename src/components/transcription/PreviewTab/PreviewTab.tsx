@@ -34,6 +34,7 @@ interface PreviewTabProps {
   onTogglePlay: () => void;
   onProgress: (currentTime: number) => void;
   onDuration: (duration: number) => void;
+  onPlaybackRateChange: (playbackRate: number) => void;
 }
 
 /**
@@ -256,6 +257,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   onTogglePlay,
   onProgress,
   onDuration,
+  onPlaybackRateChange,
 }) => {
   // Local state for track volumes (will be lifted to parent later)
   const [tracks, setTracks] = useState<AudioTrack[]>([
@@ -271,7 +273,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       id: "careful",
       label: "Careful", // SayMore simple naming
       url: "", // Will be populated from segment files
-      volume: 60,
+      volume: 100,
       muted: false,
       isKing: false,
     },
@@ -279,7 +281,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       id: "translation",
       label: "Translation", // SayMore simple naming
       url: "", // Will be populated from segment files
-      volume: 60,
+      volume: 100,
       muted: false,
       isKing: false,
     },
@@ -302,6 +304,12 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
   // Ref to VideoPlayerSection for video speed control
   const videoRef = useRef<VideoPlayerSectionHandle>(null);
+
+  // Track current playback position with ref (for immediate access in callbacks)
+  const currentPlaybackRef = useRef<{ segmentIndex: number; trackIndex: number }>({
+    segmentIndex: 0,
+    trackIndex: 0,
+  });
 
   // Note: Removed kings/princes mode - all tracks play sequentially at base playback rate
 
@@ -563,7 +571,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     for (let i = startTrackIndex; i < tracks.length; i++) {
       const track = tracks[i];
 
-      // Skip muted tracks
+      // Skip muted/disabled tracks
       if (track.muted) continue;
 
       // Check if track has audio for this segment
@@ -641,6 +649,9 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
     console.log(`Playing segment ${segmentIndex}, track ${trackIndex} (${tracks[trackIndex].label})`);
 
+    // Update ref immediately (synchronous) for use in callbacks
+    currentPlaybackRef.current = { segmentIndex, trackIndex };
+
     // Update sequential playback state
     setSequentialPlayback({
       isPlaying: true,
@@ -655,10 +666,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
     // Seek video to segment start (video always follows source timeline)
     if (videoRef.current) {
+      console.log(`Seeking video to ${segment.start}s`);
       videoRef.current.seekTo(segment.start, "seconds");
+    } else {
+      console.warn('videoRef.current is null, cannot seek');
     }
 
     // Play the segment on the track
+    console.log(`Calling multiTrackRef.playSegment(${segmentIndex}, ${trackIndex})`);
     multiTrackRef.current.playSegment(segmentIndex, trackIndex);
   };
 
@@ -668,37 +683,50 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   const handleTrackFinished = () => {
     if (!sequentialPlayback.autoAdvance) return;
 
-    const { currentSegmentIndex, currentTrackIndex } = sequentialPlayback;
+    // Read from ref (synchronous, always current) instead of state (asynchronous)
+    const currentSegmentIndex = currentPlaybackRef.current.segmentIndex;
+    const currentTrackIndex = currentPlaybackRef.current.trackIndex;
+
+    console.log(`Track finished: segment ${currentSegmentIndex}, track ${currentTrackIndex}`);
 
     // Briefly pause playback state during transition to pause video
     setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
 
     // Try to find next active track in current segment
     const nextTrack = findNextActiveTrack(currentTrackIndex + 1, currentSegmentIndex);
+    console.log(`  Next track in segment ${currentSegmentIndex}: ${nextTrack}`);
 
     if (nextTrack !== -1) {
       // Play next track in current segment (after brief delay for smooth transition)
+      console.log(`  -> Playing next track ${nextTrack} in segment ${currentSegmentIndex}`);
       setTimeout(() => {
         playTrack(currentSegmentIndex, nextTrack);
       }, 100);
     } else {
-      // Move to next segment
-      const nextSegmentIndex = currentSegmentIndex + 1;
-      if (nextSegmentIndex < segments.length) {
-        // Find first active track in next segment
-        const firstTrack = findNextActiveTrack(0, nextSegmentIndex);
-        if (firstTrack !== -1) {
-          setTimeout(() => {
-            playTrack(nextSegmentIndex, firstTrack);
-          }, 100);
-        } else {
-          // No active tracks in next segment, stop playback
-          console.log("No active tracks in next segment, stopping");
-          setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
+      // No more tracks in current segment, find next segment with active tracks
+      console.log(`  No more tracks in segment ${currentSegmentIndex}, searching for next segment...`);
+      let foundSegment = -1;
+      let foundTrack = -1;
+
+      for (let segmentIndex = currentSegmentIndex + 1; segmentIndex < segments.length; segmentIndex++) {
+        const trackIndex = findNextActiveTrack(0, segmentIndex);
+        if (trackIndex !== -1) {
+          foundSegment = segmentIndex;
+          foundTrack = trackIndex;
+          console.log(`  Found next segment: ${foundSegment}, track: ${foundTrack}`);
+          break;
         }
+      }
+
+      if (foundSegment !== -1 && foundTrack !== -1) {
+        // Found next segment with active tracks
+        console.log(`  -> Playing segment ${foundSegment}, track ${foundTrack}`);
+        setTimeout(() => {
+          playTrack(foundSegment, foundTrack);
+        }, 100);
       } else {
-        // Reached end of segments, stop playback
-        console.log("Reached end of segments, stopping");
+        // No more segments with active tracks, stop playback
+        console.log("  -> No more segments with active tracks, stopping");
         setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
       }
     }
@@ -708,12 +736,30 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
    * Start sequential playback from the beginning
    */
   const startSequentialPlayback = () => {
-    if (segments.length === 0) return;
+    if (segments.length === 0) {
+      alert('No segments available to play.');
+      return;
+    }
 
-    // Find first active track in first segment
-    const firstTrack = findNextActiveTrack(0, 0);
-    if (firstTrack !== -1) {
-      playTrack(0, firstTrack);
+    // Find first segment with an active track
+    let foundSegment = -1;
+    let foundTrack = -1;
+
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+      const trackIndex = findNextActiveTrack(0, segmentIndex);
+      if (trackIndex !== -1) {
+        foundSegment = segmentIndex;
+        foundTrack = trackIndex;
+        break;
+      }
+    }
+
+    console.log(`Starting sequential playback - first available: segment ${foundSegment}, track ${foundTrack}`);
+
+    if (foundSegment !== -1 && foundTrack !== -1) {
+      playTrack(foundSegment, foundTrack);
+    } else {
+      alert('No enabled tracks with audio found. Please enable at least one track or record some annotations.');
     }
   };
 
@@ -757,12 +803,16 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       console.log(`Video playback rate: ${clampedSpeed.toFixed(3)}x (base: ${playback.playbackRate}x)`);
     }
 
-    return {
+    const videoState = {
       ...playback,
       playbackRate: clampedSpeed,
       playing: sequentialPlayback.isPlaying, // Video plays when sequential playback is active
       muted: true, // Video is always muted (audio comes from WaveSurfer tracks)
     };
+
+    console.log(`Video state: playing=${videoState.playing}, rate=${videoState.playbackRate.toFixed(3)}x`);
+
+    return videoState;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sequentialPlayback.isPlaying,
@@ -874,7 +924,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
           Speed:
           <select
             value={playback.playbackRate}
-            onChange={(e) => console.log("Speed change:", e.target.value)}
+            onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value))}
           >
             <option value="0.5">0.5x</option>
             <option value="0.75">0.75x</option>

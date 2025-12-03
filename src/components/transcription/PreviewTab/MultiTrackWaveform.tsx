@@ -587,7 +587,14 @@ export const MultiTrackWaveform = forwardRef<MultiTrackWaveformHandle, MultiTrac
         });
       }
     });
-  }, [segments, readyStates, tracks]);
+  }, [
+    segments,
+    readyStates,
+    // Only re-create regions if track count or segment files change
+    // NOT when volume/mute changes
+    tracks.length,
+    tracks.map(t => t.segmentFiles?.length || 0).join(','),
+  ]);
 
   /**
    * Handle volume slider change
@@ -622,14 +629,14 @@ export const MultiTrackWaveform = forwardRef<MultiTrackWaveformHandle, MultiTrac
               )}
             </div>
             <div className="track-controls">
-              {/* Mute Checkbox */}
-              <label className="mute-control">
+              {/* Enabled/Disabled Toggle */}
+              <label className="enabled-control">
                 <input
                   type="checkbox"
-                  checked={track.muted}
-                  onChange={(e) => handleMuteChange(index, e.target.checked)}
+                  checked={!track.muted}
+                  onChange={(e) => handleMuteChange(index, !e.target.checked)}
                 />
-                Mute
+                Enabled
               </label>
 
               {/* Volume Slider */}
