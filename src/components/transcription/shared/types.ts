@@ -50,6 +50,16 @@ export enum OralAnnotationType {
 // ============================================================================
 
 /**
+ * Segment audio file information (for annotation tracks)
+ */
+export interface SegmentAudioFile {
+  path: string;
+  start: number;
+  end: number;
+  duration: number;
+}
+
+/**
  * Audio track configuration for multi-layer playback
  * Based on Prestige's DeeJay component
  */
@@ -71,6 +81,9 @@ export interface AudioTrack {
 
   /** Whether this track is a "king" (volume >= 84%) or "prince" */
   isKing: boolean;
+
+  /** Optional: segment files metadata (for merged annotation tracks) */
+  segmentFiles?: SegmentAudioFile[];
 }
 
 /**
@@ -280,6 +293,9 @@ export interface TranscriptionViewProps {
 
   /** Callback when transcription is closed */
   onClose: () => void;
+
+  /** Display mode: 'annotate' for annotation grid, 'segment' for segmentation tools only, 'preview' for multi-track playback */
+  mode?: "annotate" | "segment" | "preview";
 }
 
 /**

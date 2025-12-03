@@ -16,6 +16,9 @@ import {
   AudioTrack,
   PlaybackState,
 } from "../shared/types";
+const path = require("path");
+const fs = require("fs");
+const { execSync } = require("child_process");
 
 /**
  * Props for PreviewTab component
@@ -29,6 +32,215 @@ interface PreviewTabProps {
   onTogglePlay: () => void;
   onProgress: (currentTime: number) => void;
   onDuration: (duration: number) => void;
+}
+
+/**
+ * Segment audio file information for concatenation
+ */
+interface SegmentAudioFile {
+  path: string;
+  start: number; // Original segment start time
+  end: number;   // Original segment end time
+  duration: number; // Actual audio file duration (from file, not segment timing)
+}
+
+/**
+ * Get audio file duration using ffprobe
+ */
+function getAudioDuration(filePath: string): number {
+  try {
+    // Use ffprobe to get duration
+    const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`;
+    const output = execSync(command, { encoding: 'utf8' });
+    const duration = parseFloat(output.trim());
+    return isNaN(duration) ? 0 : duration;
+  } catch (error) {
+    console.error(`Failed to get duration for ${filePath}:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Normalize a name by treating spaces and underscores equivalently
+ * SayMore allowed spaces in names, Lameta replaces them with underscores
+ */
+function normalizeNameVariants(name: string): string[] {
+  // Return both space and underscore variants
+  return [
+    name,
+    name.replace(/_/g, " "),
+    name.replace(/ /g, "_")
+  ];
+}
+
+/**
+ * Find a file with space/underscore name variants
+ */
+function findFileWithNameVariants(dir: string, baseFileName: string): string | null {
+  const variants = normalizeNameVariants(baseFileName);
+  for (const variant of variants) {
+    const filePath = path.join(dir, variant);
+    if (fs.existsSync(filePath)) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find any _Annotations folder in the session directory
+ * Used when video/audio files share the same timing (e.g., video + extracted StandardAudio)
+ */
+function findAnyAnnotationsFolder(sessionDir: string): string | null {
+  try {
+    const entries = fs.readdirSync(sessionDir);
+
+    // Look for any folder ending with _Annotations or " Annotations"
+    for (const entry of entries) {
+      const fullPath = path.join(sessionDir, entry);
+      const stats = fs.statSync(fullPath);
+
+      if (stats.isDirectory() &&
+          (entry.endsWith("_Annotations") || entry.endsWith(" Annotations"))) {
+        console.log(`Found annotations folder: ${fullPath}`);
+        return fullPath;
+      }
+    }
+  } catch (error) {
+    console.error("Error scanning for annotations folders:", error);
+  }
+
+  return null;
+}
+
+/**
+ * Find merged annotation audio file for a tier (Careful_Merged.mp3 or Translation_Merged.mp3)
+ * Returns the path to the merged file if it exists, or null
+ */
+function findMergedAnnotationFile(
+  mediaFilePath: string,
+  tier: "Careful" | "Translation"
+): string | null {
+  const mediaDir = path.dirname(mediaFilePath);
+  const mediaFileNameWithExt = path.basename(mediaFilePath);
+  const mediaBaseName = path.basename(mediaFilePath, path.extname(mediaFilePath));
+
+  // Try multiple naming patterns for the annotations folder
+  const annotationsFolderPatterns = [
+    `${mediaFileNameWithExt}_Annotations`,
+    `${mediaBaseName}_Annotations`
+  ];
+
+  let annotationsDir: string | null = null;
+  for (const pattern of annotationsFolderPatterns) {
+    const found = findFileWithNameVariants(mediaDir, pattern);
+    if (found) {
+      annotationsDir = found;
+      break;
+    }
+  }
+
+  // If not found, look for any annotations folder
+  if (!annotationsDir) {
+    annotationsDir = findAnyAnnotationsFolder(mediaDir);
+  }
+
+  if (!annotationsDir) {
+    return null;
+  }
+
+  // Look for merged file (Careful_Merged.mp3 or Translation_Merged.mp3)
+  const mergedFileName = `${tier}_Merged.mp3`;
+  const mergedFilePath = path.join(annotationsDir, mergedFileName);
+
+  if (fs.existsSync(mergedFilePath)) {
+    console.log(`Found merged ${tier} file: ${mergedFilePath}`);
+    return mergedFilePath;
+  }
+
+  console.log(`No merged ${tier} file found at: ${mergedFilePath}`);
+  return null;
+}
+
+/**
+ * Discover annotation audio files for a specific tier (Careful or Translation)
+ * Returns an array of segment audio files that exist in the _Annotations folder
+ * Handles both space and underscore naming conventions in folder and file names
+ */
+function discoverAnnotationAudioFiles(
+  mediaFilePath: string,
+  segments: AnnotationSegment[],
+  tier: "Careful" | "Translation"
+): SegmentAudioFile[] {
+  const mediaDir = path.dirname(mediaFilePath);
+  const mediaFileNameWithExt = path.basename(mediaFilePath);
+  const mediaBaseName = path.basename(mediaFilePath, path.extname(mediaFilePath));
+
+  // Try multiple naming patterns for the annotations folder:
+  // 1. {filename_with_extension}_Annotations (SayMore format)
+  // 2. {filename_without_extension}_Annotations (Lameta format)
+  const annotationsFolderPatterns = [
+    `${mediaFileNameWithExt}_Annotations`,  // Try with extension first (SayMore)
+    `${mediaBaseName}_Annotations`          // Try without extension (Lameta)
+  ];
+
+  let annotationsDir: string | null = null;
+  for (const pattern of annotationsFolderPatterns) {
+    const found = findFileWithNameVariants(mediaDir, pattern);
+    if (found) {
+      annotationsDir = found;
+      break;
+    }
+  }
+
+  // If not found with specific patterns, look for ANY annotations folder in the session
+  // This handles cases where video uses audio file's annotations (e.g., StandardAudio.wav)
+  if (!annotationsDir) {
+    console.log(`No exact match found. Trying patterns:`, annotationsFolderPatterns);
+    annotationsDir = findAnyAnnotationsFolder(mediaDir);
+  }
+
+  if (!annotationsDir) {
+    console.log(`No annotations folder found in: ${mediaDir}`);
+    return [];
+  }
+
+  console.log(`Using annotations folder: ${annotationsDir}`);
+
+  const segmentFiles: SegmentAudioFile[] = [];
+
+  // List all files in the annotations directory for debugging
+  try {
+    const allFiles = fs.readdirSync(annotationsDir);
+    console.log(`Files in annotations folder:`, allFiles);
+  } catch (error) {
+    console.error(`Error reading annotations folder:`, error);
+  }
+
+  // For each segment, check if the corresponding audio file exists
+  // Try both space and underscore variants for the file name
+  for (const segment of segments) {
+    const fileName = `${segment.start}_to_${segment.end}_${tier}.wav`;
+    console.log(`Looking for segment file: ${fileName} (segment ${segment.start}-${segment.end})`);
+    const filePath = findFileWithNameVariants(annotationsDir, fileName);
+
+    if (filePath) {
+      // Get actual audio file duration (not segment duration)
+      const actualDuration = getAudioDuration(filePath);
+      console.log(`  ✓ Found: ${filePath} (actual duration: ${actualDuration.toFixed(3)}s, segment duration: ${(segment.end - segment.start).toFixed(3)}s)`);
+      segmentFiles.push({
+        path: filePath,
+        start: segment.start,
+        end: segment.end,
+        duration: actualDuration, // Use actual file duration, not segment timing
+      });
+    } else {
+      console.log(`  ✗ Not found`);
+    }
+  }
+
+  console.log(`Found ${segmentFiles.length} ${tier} annotation files in ${annotationsDir}`);
+  return segmentFiles;
 }
 
 /**
@@ -71,11 +283,55 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     },
   ]);
 
-  // Kings/Princes mode configuration
-  const [kingsPrincesMode, setKingsPrincesMode] = useState<KingsPrincesMode>({
-    useKingsPrincesLogic: true, // Default to traditional kings/princes mode
-    kingThreshold: 84, // 84% volume threshold
-  });
+  // Store segment audio file information for each tier
+  const [carefulSegments, setCarefulSegments] = useState<SegmentAudioFile[]>([]);
+  const [translationSegments, setTranslationSegments] = useState<SegmentAudioFile[]>([]);
+
+  // Note: Removed kings/princes mode - all tracks play sequentially at base playback rate
+
+  /**
+   * Discover and populate annotation audio files when segments change
+   */
+  useEffect(() => {
+    if (segments.length === 0) {
+      console.log("No segments to discover annotation files for");
+      return;
+    }
+
+    console.log(`Discovering annotation files for ${segments.length} segments`);
+
+    // Discover individual segment files
+    const carefulFiles = discoverAnnotationAudioFiles(mediaFilePath, segments, "Careful");
+    const translationFiles = discoverAnnotationAudioFiles(mediaFilePath, segments, "Translation");
+
+    // Store the discovered files
+    setCarefulSegments(carefulFiles);
+    setTranslationSegments(translationFiles);
+
+    // Update tracks with segment files (will be concatenated on-the-fly)
+    setTracks((prevTracks) =>
+      prevTracks.map((track) => {
+        if (track.id === "careful" && carefulFiles.length > 0) {
+          // Use individual segment files with metadata
+          return {
+            ...track,
+            url: "", // Will be generated from segment files
+            segmentFiles: carefulFiles,
+          } as any;
+        } else if (track.id === "translation" && translationFiles.length > 0) {
+          // Use individual segment files with metadata
+          return {
+            ...track,
+            url: "", // Will be generated from segment files
+            segmentFiles: translationFiles,
+          } as any;
+        }
+        return track;
+      })
+    );
+
+    console.log(`Discovered segment files - Careful: ${carefulFiles.length}, Translation: ${translationFiles.length}`);
+  }, [mediaFilePath, segments]);
 
   // Export dialog state
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -104,13 +360,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   const handleVolumeChange = (trackIndex: number, volume: number) => {
     setTracks((prevTracks) =>
       prevTracks.map((track, index) =>
-        index === trackIndex
-          ? {
-              ...track,
-              volume,
-              isKing: volume >= kingsPrincesMode.kingThreshold,
-            }
-          : track
+        index === trackIndex ? { ...track, volume } : track
       )
     );
   };
@@ -126,15 +376,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     );
   };
 
-  /**
-   * Toggle kings/princes mode
-   */
-  const toggleKingsPrincesMode = () => {
-    setKingsPrincesMode((prev) => ({
-      ...prev,
-      useKingsPrincesLogic: !prev.useKingsPrincesLogic,
-    }));
-  };
+  // Removed toggleKingsPrincesMode - no longer needed
 
   /**
    * Open export dialog
@@ -165,7 +407,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         mediaFilePath,
         segments,
         tracks,
-        kingsPrincesMode,
+        { useKingsPrincesLogic: false, kingThreshold: 84 }, // Always use sequential playback
         settings
       );
 
@@ -184,14 +426,27 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   const handleGenerateOralAnnotation = async () => {
     try {
       // Determine annotations directory
-      const path = require("path");
       const mediaDir = path.dirname(mediaFilePath);
+      const mediaFileNameWithExt = path.basename(mediaFilePath);
       const mediaBaseName = path.basename(mediaFilePath, path.extname(mediaFilePath));
-      const annotationsDir = path.join(mediaDir, `${mediaBaseName}_Annotations`);
+
+      // Try multiple naming patterns for the annotations folder
+      const annotationsFolderPatterns = [
+        `${mediaFileNameWithExt}_Annotations`,  // SayMore format (with extension)
+        `${mediaBaseName}_Annotations`          // Lameta format (without extension)
+      ];
+
+      let annotationsDir: string | null = null;
+      for (const pattern of annotationsFolderPatterns) {
+        const found = findFileWithNameVariants(mediaDir, pattern);
+        if (found) {
+          annotationsDir = found;
+          break;
+        }
+      }
 
       // Check if annotations directory exists
-      const fs = require("fs");
-      if (!fs.existsSync(annotationsDir)) {
+      if (!annotationsDir) {
         alert("No annotations folder found. Please record at least one segment first.");
         return;
       }
@@ -282,31 +537,15 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   };
 
   /**
-   * Categorize tracks into kings and princes
+   * Video playback synchronization
+   *
+   * Video speed adjusts based on which track is currently playing:
+   * - When Source Audio plays: video speed = basePlaybackRate
+   * - When Careful/Translation plays: video speed = sourceSegmentDuration / (audioClipDuration / basePlaybackRate)
+   *
+   * This ensures the video reaches segment boundaries at the same time as the audio.
    */
-  const kings = tracks.filter((t) => !t.muted && t.isKing);
-  const princes = tracks.filter((t) => !t.muted && !t.isKing && t.volume > 0);
-
-  /**
-   * Video playback synchronization (Prestige-style)
-   *
-   * The video plays at the same rate as king tracks, ensuring it reaches
-   * segment boundaries at the same time the dominant audio does.
-   *
-   * Playback rates:
-   * - Kings (≥84% volume): Play at base playback rate (from selector)
-   * - Princes (<84% volume): Play at 0.75x of base rate
-   * - Video: Plays at base rate (matches kings)
-   *
-   * This matches Prestige's algorithm where:
-   *   V1Speed = (segment.end - segment.start) / kingLen
-   *   where kingLen = segmentDuration / kingPlaybackRate
-   *   → V1Speed = kingPlaybackRate
-   *
-   * Result: Video and king audio reach segment milestones simultaneously,
-   * while prince tracks play slower in the background.
-   */
-  const videoPlayback = playback; // Video syncs with kings at base rate
+  const videoPlayback = playback;
 
   return (
     <div className="preview-tab">
@@ -321,28 +560,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         />
       </div>
 
-      {/* Mode Toggle */}
-      <div className="mode-toggle-section">
-        <button onClick={toggleKingsPrincesMode} className="btn-toggle-mode">
-          {kingsPrincesMode.useKingsPrincesLogic
-            ? "Switch to All Kings Mode"
-            : "Switch to Kings & Princes Mode"}
-        </button>
-        <p className="mode-description">
-          {kingsPrincesMode.useKingsPrincesLogic
-            ? "Current: Kings & Princes - Tracks ≥84% play at normal speed, tracks <84% play slower"
-            : "Current: All Kings - All enabled tracks play at normal speed"}
-        </p>
-      </div>
-
       {/* Multi-Track Waveform Section */}
       <div className="multi-track-section">
         <MultiTrackWaveform
           tracks={tracks}
+          segments={segments}
           playing={playback.playing}
           currentTime={playback.currentTime}
           playbackRate={playback.playbackRate}
-          kingsPrincesMode={kingsPrincesMode}
           onVolumeChange={handleVolumeChange}
           onMuteChange={handleMuteChange}
           onProgress={onProgress}
@@ -374,7 +599,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         mediaFilePath={mediaFilePath}
         segments={segments}
         tracks={tracks}
-        kingsPrincesMode={kingsPrincesMode}
+        kingsPrincesMode={{ useKingsPrincesLogic: false, kingThreshold: 84 }}
         onExport={handleExport}
         onClose={() => setExportDialogOpen(false)}
       />

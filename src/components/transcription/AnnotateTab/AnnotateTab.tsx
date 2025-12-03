@@ -3,7 +3,7 @@
  * Provides video playback, waveform, segmentation tools, and annotation grid
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./AnnotateTab.css";
 import VideoPlayerSection from "../shared/VideoPlayerSection";
 import WaveformSection from "../shared/WaveformSection";
@@ -14,6 +14,78 @@ import {
   PlaybackState,
   OralAnnotationType,
 } from "../shared/types";
+
+const path = require("path");
+const fs = require("fs");
+
+/**
+ * Find the audio file to use for waveform display
+ * For video files, looks for the StandardAudio.wav file in the same directory
+ */
+function getAudioUrlForWaveform(mediaFilePath: string): string {
+  const ext = path.extname(mediaFilePath).toLowerCase();
+
+  // If it's already an audio file, use it directly
+  if (ext === ".wav" || ext === ".mp3" || ext === ".ogg" || ext === ".flac") {
+    return mediaFilePath;
+  }
+
+  // For video files, look for StandardAudio.wav
+  const mediaDir = path.dirname(mediaFilePath);
+  const mediaBaseName = path.basename(mediaFilePath, ext);
+
+  // Try to find StandardAudio.wav or similar
+  const audioPatterns = [
+    path.join(mediaDir, `${mediaBaseName}_StandardAudio.wav`),
+    path.join(mediaDir, `${mediaBaseName} StandardAudio.wav`),
+    path.join(mediaDir, `${mediaBaseName}.wav`),
+  ];
+
+  for (const audioPath of audioPatterns) {
+    if (fs.existsSync(audioPath)) {
+      console.log(`Using audio file for waveform: ${audioPath}`);
+      return audioPath;
+    }
+  }
+
+  // Fallback: return the video file (may not work with WaveSurfer)
+  console.warn(`No audio file found for ${mediaFilePath}, using video file (may not display waveform)`);
+  return mediaFilePath;
+}
+
+/**
+ * Get the base audio file path for determining annotations directory
+ * This matches the audio file used for the waveform, not the video file
+ */
+function getBaseAudioFileForAnnotations(mediaFilePath: string): string {
+  const ext = path.extname(mediaFilePath).toLowerCase();
+
+  // If it's already an audio file, use it directly
+  if (ext === ".wav" || ext === ".mp3" || ext === ".ogg" || ext === ".flac") {
+    return mediaFilePath;
+  }
+
+  // For video files, look for StandardAudio.wav (same logic as getAudioUrlForWaveform)
+  const mediaDir = path.dirname(mediaFilePath);
+  const mediaBaseName = path.basename(mediaFilePath, ext);
+
+  // Try to find StandardAudio.wav or similar
+  const audioPatterns = [
+    path.join(mediaDir, `${mediaBaseName}_StandardAudio.wav`),
+    path.join(mediaDir, `${mediaBaseName} StandardAudio.wav`),
+    path.join(mediaDir, `${mediaBaseName}.wav`),
+  ];
+
+  for (const audioPath of audioPatterns) {
+    if (fs.existsSync(audioPath)) {
+      return audioPath;
+    }
+  }
+
+  // Fallback: return the video file (may not work with WaveSurfer)
+  console.warn(`No audio file found for ${mediaFilePath}, using video file (may not display waveform)`);
+  return mediaFilePath;
+}
 
 /**
  * Props for AnnotateTab component
@@ -38,6 +110,7 @@ interface AnnotateTabProps {
   onMergeSegments: () => void;
   onSave: () => void;
   onSaveRecording: (segmentId: string, recordingType: OralAnnotationType, audioBlob: Blob) => void;
+  mode?: "segment" | "annotate";
 }
 
 /**
@@ -62,7 +135,16 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   onMergeSegments,
   onSave,
   onSaveRecording,
+  mode = "annotate",
 }) => {
+  // Memoize audio URL to prevent re-initialization of WaveSurfer
+  const audioUrl = useMemo(() => getAudioUrlForWaveform(mediaFilePath), [mediaFilePath]);
+
+  // Track mounted state and active timeouts to prevent memory leaks
+  const isMountedRef = useRef(true);
+  const activeTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
+  const annotationAudioRef = useRef<HTMLAudioElement | null>(null);
+
   // Recording dialog state
   const [recordingDialog, setRecordingDialog] = useState<{
     isOpen: boolean;
@@ -73,6 +155,39 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
     segmentId: "",
     recordingType: OralAnnotationType.CarefulSpeech,
   });
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      // Clear all active timeouts
+      activeTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      activeTimeoutsRef.current.clear();
+      // Stop and cleanup annotation audio if playing
+      if (annotationAudioRef.current) {
+        annotationAudioRef.current.pause();
+        annotationAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  /**
+   * Auto-resize textarea to fit content
+   */
+  const handleTextareaResize = (element: HTMLTextAreaElement) => {
+    element.style.height = 'auto';
+    element.style.height = element.scrollHeight + 'px';
+  };
+
+  /**
+   * Auto-resize all textareas when segments change
+   */
+  useEffect(() => {
+    const textareas = document.querySelectorAll('.annotation-grid textarea');
+    textareas.forEach((textarea) => {
+      handleTextareaResize(textarea as HTMLTextAreaElement);
+    });
+  }, [segments]);
 
   /**
    * Handle segment click from waveform
@@ -120,6 +235,280 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
       }
       console.log(`Playing segment: ${targetId} (${segment.start}s - ${segment.end}s)`);
     }
+  };
+
+  /**
+   * Handle transcription field focus - play segment 5 times for transcription
+   * Plays Careful speech annotation if it exists, otherwise plays original segment
+   */
+  const handleTranscriptionFocus = (segmentId: string) => {
+    const segment = segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+
+    // Select the segment (but ensure video doesn't auto-play)
+    onSegmentSelect(segmentId);
+
+    // Stop any video playback immediately
+    if (playback.playing) {
+      onTogglePlay();
+    }
+
+    // Get the base audio file (StandardAudio.wav) to determine annotations directory
+    // This is important because the annotations are associated with the audio file, not the video file
+    const baseAudioFile = getBaseAudioFileForAnnotations(mediaFilePath);
+    const audioDir = path.dirname(baseAudioFile);
+
+    // Try to find the annotations directory - SayMore uses the full audio filename
+    // May have encoding variations (e.g., é vs e) so we need to check what actually exists
+    const audioBaseName = path.basename(baseAudioFile);
+    let annotationsDir = path.join(audioDir, `${audioBaseName}_Annotations`);
+
+    // If that doesn't exist, try listing directories to find the actual name
+    if (!fs.existsSync(annotationsDir)) {
+      const files = fs.readdirSync(audioDir);
+      const annotationsDirs = files.filter((f: string) =>
+        f.includes('_Annotations') &&
+        f.toLowerCase().includes('standardaudio')
+      );
+      if (annotationsDirs.length > 0) {
+        annotationsDir = path.join(audioDir, annotationsDirs[0]);
+        console.log(`  Found annotations dir via search: ${annotationsDir}`);
+      }
+    }
+
+    const carefulFileName = `${segment.start}_to_${segment.end}_Careful.wav`;
+    const carefulFilePath = path.join(annotationsDir, carefulFileName);
+
+    console.log(`[Transcription Focus] Checking for Careful annotation:`);
+    console.log(`  mediaFilePath: ${mediaFilePath}`);
+    console.log(`  baseAudioFile: ${baseAudioFile}`);
+    console.log(`  audioDir: ${audioDir}`);
+    console.log(`  audioBaseName: ${audioBaseName}`);
+    console.log(`  annotationsDir: ${annotationsDir}`);
+    console.log(`  carefulFileName: ${carefulFileName}`);
+    console.log(`  carefulFilePath: ${carefulFilePath}`);
+    console.log(`  segment: ${segment.start} to ${segment.end}`);
+
+    // List files in annotations directory for debugging
+    if (fs.existsSync(annotationsDir)) {
+      const files = fs.readdirSync(annotationsDir);
+      console.log(`  Files in annotations folder (${files.length} files):`, files);
+    } else {
+      console.log(`  Annotations directory does not exist`);
+    }
+
+    const isCarefulAnnotation = fs.existsSync(carefulFilePath);
+    console.log(`  exists: ${isCarefulAnnotation}`);
+
+    if (isCarefulAnnotation) {
+      console.log(`Playing Careful speech annotation: ${carefulFilePath}`);
+    } else {
+      console.log(`No Careful speech annotation found, playing original segment`);
+    }
+
+    // Play the audio 5 times with synchronized video
+    let playCount = 0;
+    const maxPlays = 5;
+
+    const playSegment = () => {
+      if (!isMountedRef.current || playCount >= maxPlays) {
+        if (playCount >= maxPlays) {
+          console.log(`Finished playing segment ${maxPlays} times`);
+        }
+        return;
+      }
+
+      playCount++;
+      console.log(`Playing segment (${playCount}/${maxPlays})`);
+
+      if (isCarefulAnnotation) {
+        // Play the Careful speech annotation audio file at user-selected speed
+        const audioUrl = `file://${carefulFilePath.replace(/\\/g, '/')}`;
+        console.log(`  audioUrl: ${audioUrl}`);
+        console.log(`  playback rate: ${playback.playbackRate}x`);
+
+        if (!annotationAudioRef.current) {
+          annotationAudioRef.current = new Audio(audioUrl);
+        } else {
+          annotationAudioRef.current.src = audioUrl;
+        }
+
+        // Set audio playback rate to match user's selected speed
+        annotationAudioRef.current.playbackRate = playback.playbackRate;
+        annotationAudioRef.current.currentTime = 0;
+
+        // Play annotation audio
+        annotationAudioRef.current.play().catch((err) => {
+          console.error("Error playing annotation audio:", err);
+        });
+
+        // Play video (muted) synchronized with annotation audio
+        // Start video at segment start
+        onProgress(segment.start);
+        if (!playback.playing) {
+          onTogglePlay();
+        }
+
+        // When audio ends, stop video and play the next iteration
+        annotationAudioRef.current.onended = () => {
+          if (isMountedRef.current) {
+            // Stop video playback
+            if (playback.playing) {
+              onTogglePlay();
+            }
+            // Small delay between plays, then repeat
+            const timeout = setTimeout(playSegment, 100);
+            activeTimeoutsRef.current.add(timeout);
+          }
+        };
+      } else {
+        // Play original segment from video (with audio)
+        onProgress(segment.start);
+        if (!playback.playing) {
+          onTogglePlay();
+        }
+
+        // Wait for segment duration, then play again
+        const timeout = setTimeout(playSegment, (segment.end - segment.start) * 1000);
+        activeTimeoutsRef.current.add(timeout);
+      }
+    };
+
+    // Start playing
+    playSegment();
+  };
+
+  /**
+   * Handle translation field focus - play segment 5 times for translation
+   * Priority: Translation annotation > Careful speech > Original segment
+   */
+  const handleTranslationFocus = (segmentId: string) => {
+    const segment = segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+
+    // Select the segment (but ensure video doesn't auto-play)
+    onSegmentSelect(segmentId);
+
+    // Stop any video playback immediately
+    if (playback.playing) {
+      onTogglePlay();
+    }
+
+    // Get the base audio file (StandardAudio.wav) to determine annotations directory
+    // This is important because the annotations are associated with the audio file, not the video file
+    const baseAudioFile = getBaseAudioFileForAnnotations(mediaFilePath);
+    const audioDir = path.dirname(baseAudioFile);
+
+    // Try to find the annotations directory - SayMore uses the full audio filename
+    // May have encoding variations (e.g., é vs e) so we need to check what actually exists
+    const audioBaseName = path.basename(baseAudioFile);
+    let annotationsDir = path.join(audioDir, `${audioBaseName}_Annotations`);
+
+    // If that doesn't exist, try listing directories to find the actual name
+    if (!fs.existsSync(annotationsDir)) {
+      const files = fs.readdirSync(audioDir);
+      const annotationsDirs = files.filter((f: string) =>
+        f.includes('_Annotations') &&
+        f.toLowerCase().includes('standardaudio')
+      );
+      if (annotationsDirs.length > 0) {
+        annotationsDir = path.join(audioDir, annotationsDirs[0]);
+        console.log(`  Found annotations dir via search: ${annotationsDir}`);
+      }
+    }
+
+    const translationFileName = `${segment.start}_to_${segment.end}_Translation.wav`;
+    const translationFilePath = path.join(annotationsDir, translationFileName);
+
+    const carefulFileName = `${segment.start}_to_${segment.end}_Careful.wav`;
+    const carefulFilePath = path.join(annotationsDir, carefulFileName);
+
+    let audioSource: "translation" | "careful" | "original" = "original";
+    let audioFilePath = "";
+
+    // Check in priority order: Translation > Careful > Original
+    if (fs.existsSync(translationFilePath)) {
+      audioSource = "translation";
+      audioFilePath = translationFilePath;
+      console.log(`Playing Translation annotation: ${translationFilePath}`);
+    } else if (fs.existsSync(carefulFilePath)) {
+      audioSource = "careful";
+      audioFilePath = carefulFilePath;
+      console.log(`Playing Careful speech annotation (fallback): ${carefulFilePath}`);
+    } else {
+      console.log(`No annotations found, playing original segment`);
+    }
+
+    // Play the audio 5 times with synchronized video
+    let playCount = 0;
+    const maxPlays = 5;
+
+    const playSegment = () => {
+      if (!isMountedRef.current || playCount >= maxPlays) {
+        if (playCount >= maxPlays) {
+          console.log(`Finished playing segment ${maxPlays} times (source: ${audioSource})`);
+        }
+        return;
+      }
+
+      playCount++;
+      console.log(`Playing segment (${playCount}/${maxPlays}) - source: ${audioSource}`);
+
+      if (audioSource !== "original") {
+        // Play the annotation audio file (Translation or Careful) at user-selected speed
+        const audioUrl = `file://${audioFilePath.replace(/\\/g, '/')}`;
+        console.log(`  audioUrl: ${audioUrl}`);
+        console.log(`  playback rate: ${playback.playbackRate}x`);
+
+        if (!annotationAudioRef.current) {
+          annotationAudioRef.current = new Audio(audioUrl);
+        } else {
+          annotationAudioRef.current.src = audioUrl;
+        }
+
+        // Set audio playback rate to match user's selected speed
+        annotationAudioRef.current.playbackRate = playback.playbackRate;
+        annotationAudioRef.current.currentTime = 0;
+
+        // Play annotation audio
+        annotationAudioRef.current.play().catch((err) => {
+          console.error("Error playing annotation audio:", err);
+        });
+
+        // Play video (muted) synchronized with annotation audio
+        // Start video at segment start
+        onProgress(segment.start);
+        if (!playback.playing) {
+          onTogglePlay();
+        }
+
+        // When audio ends, stop video and play the next iteration
+        annotationAudioRef.current.onended = () => {
+          if (isMountedRef.current) {
+            // Stop video playback
+            if (playback.playing) {
+              onTogglePlay();
+            }
+            // Small delay between plays, then repeat
+            const timeout = setTimeout(playSegment, 100);
+            activeTimeoutsRef.current.add(timeout);
+          }
+        };
+      } else {
+        // Play original segment from video (with audio)
+        onProgress(segment.start);
+        if (!playback.playing) {
+          onTogglePlay();
+        }
+
+        // Wait for segment duration, then play again
+        const timeout = setTimeout(playSegment, (segment.end - segment.start) * 1000);
+        activeTimeoutsRef.current.add(timeout);
+      }
+    };
+
+    // Start playing
+    playSegment();
   };
 
   /**
@@ -175,14 +564,15 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
       <div className="video-section">
         <VideoPlayerSection
           url={mediaFilePath}
-          playback={playback}
+          playback={mode === "annotate" ? { ...playback, muted: true } : playback}
           onProgress={onProgress}
           onDuration={onDuration}
           onPlayPause={onTogglePlay}
         />
       </div>
 
-      {/* Segmentation Toolbar */}
+      {/* Segmentation Toolbar - only show in segment mode */}
+      {mode === "segment" && (
       <div className="segmentation-toolbar">
         <button
           onClick={onStartSegmentation}
@@ -222,12 +612,21 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         <div className="keyboard-shortcuts-hint" style={{ marginLeft: "auto", fontSize: "0.85em", color: "#666" }}>
           Shortcuts: Space=Play/Pause | F2=Play segment | Tab=Next | Ctrl+S=Save
         </div>
+        <button
+          onClick={onSave}
+          className="btn-save"
+          title="Save changes (Ctrl+S)"
+        >
+          Save
+        </button>
       </div>
+      )}
 
-      {/* Waveform Section */}
+      {/* Waveform Section - only show in segment mode */}
+      {mode === "segment" && (
       <div className="waveform-wrapper">
         <WaveformSection
-          audioUrl={mediaFilePath}
+          audioUrl={audioUrl}
           segments={segments}
           selectedSegmentId={selectedSegmentId}
           currentTime={playback.currentTime}
@@ -235,8 +634,10 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           onSegmentBoundaryChange={onSegmentBoundaryChange}
         />
       </div>
+      )}
 
-      {/* Annotation Grid Section */}
+      {/* Annotation Grid Section - only show in annotate mode */}
+      {mode === "annotate" && (
       <div className="annotation-grid-section">
         <table className="annotation-grid">
           <thead>
@@ -261,23 +662,29 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
                 <td>{segment.end.toFixed(2)}</td>
                 <td>{(segment.end - segment.start).toFixed(2)}</td>
                 <td>
-                  <input
-                    type="text"
+                  <textarea
                     value={segment.text}
-                    onChange={(e) =>
-                      onSegmentUpdate(segment.id, "text", e.target.value)
-                    }
+                    onChange={(e) => {
+                      onSegmentUpdate(segment.id, "text", e.target.value);
+                    }}
+                    onInput={(e) => handleTextareaResize(e.currentTarget)}
+                    onFocus={() => handleTranscriptionFocus(segment.id)}
                     placeholder="Enter transcription..."
+                    rows={1}
+                    style={{ width: "100%", resize: "vertical", overflow: "hidden", minHeight: "24px" }}
                   />
                 </td>
                 <td>
-                  <input
-                    type="text"
+                  <textarea
                     value={segment.translation || ""}
-                    onChange={(e) =>
-                      onSegmentUpdate(segment.id, "translation", e.target.value)
-                    }
+                    onChange={(e) => {
+                      onSegmentUpdate(segment.id, "translation", e.target.value);
+                    }}
+                    onInput={(e) => handleTextareaResize(e.currentTarget)}
+                    onFocus={() => handleTranslationFocus(segment.id)}
                     placeholder="Enter translation..."
+                    rows={1}
+                    style={{ width: "100%", resize: "vertical", overflow: "hidden", minHeight: "24px" }}
                   />
                 </td>
                 <td className="audio-buttons">
@@ -297,6 +704,7 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Playback Controls */}
       <div className="playback-controls">

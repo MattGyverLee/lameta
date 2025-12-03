@@ -67,6 +67,8 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
       );
 
       // Find translation tier (flexible matching for external files)
+      console.log("Available tiers:", tiers.map((t: any) => t.$.TIER_ID).join(", "));
+
       const translationTier = tiers.find(
         (tier: any) =>
           tier.$.TIER_ID === "Translation" || // Lameta simple
@@ -74,6 +76,12 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
           tier.$.TIER_ID === "translation" ||
           tier.$.TIER_ID.toLowerCase().includes("translat")
       );
+
+      if (translationTier) {
+        console.log(`Found translation tier: ${translationTier.$.TIER_ID}`);
+      } else {
+        console.log("No translation tier found");
+      }
 
       if (transcriptionTier?.ANNOTATION) {
         const annotations = Array.isArray(transcriptionTier.ANNOTATION)
@@ -107,13 +115,33 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
           ? translationTier.ANNOTATION
           : [translationTier.ANNOTATION];
 
+        console.log(`Processing ${translations.length} translation annotations for ${segments.length} segments`);
+
+        let translationsMatched = 0;
         translations.forEach((ann: any, index: number) => {
-          const alignableAnn = ann.ALIGNABLE_ANNOTATION?.[0];
-          if (alignableAnn && segments[index]) {
-            const translationText = alignableAnn.ANNOTATION_VALUE?.[0] || "";
+          // Try ALIGNABLE_ANNOTATION first (same timing as transcription)
+          let alignableAnn = ann.ALIGNABLE_ANNOTATION?.[0];
+          let translationText = alignableAnn?.ANNOTATION_VALUE?.[0] || "";
+
+          // If not found, try REF_ANNOTATION (child of transcription tier)
+          if (!alignableAnn && ann.REF_ANNOTATION) {
+            const refAnn = ann.REF_ANNOTATION?.[0];
+            translationText = refAnn?.ANNOTATION_VALUE?.[0] || "";
+            console.log(`  Segment ${index}: Using REF_ANNOTATION - "${translationText}"`);
+          }
+
+          if ((alignableAnn || translationText) && segments[index]) {
             segments[index].translation = translationText;
+            if (translationText) {
+              console.log(`  Segment ${index}: "${translationText}"`);
+              translationsMatched++;
+            }
+          } else {
+            console.log(`  Segment ${index}: No match (alignableAnn=${!!alignableAnn}, refAnn=${!!ann.REF_ANNOTATION}, segmentExists=${!!segments[index]})`);
           }
         });
+
+        console.log(`Matched ${translationsMatched} translations to segments`);
       }
     }
 
@@ -123,6 +151,71 @@ export async function loadElanFile(filePath: string): Promise<AnnotationSegment[
     console.error("Error loading ELAN file:", error);
     throw error;
   }
+}
+
+/**
+ * Adjust segment boundaries based on existing annotation files
+ * Scans the _Annotations folder and updates segment start/end times to match annotation files
+ * @param segments Current segments
+ * @param annotationsDir Path to the _Annotations folder
+ * @returns Updated segments with corrected boundaries
+ */
+export function adjustSegmentBoundariesFromAnnotations(
+  segments: AnnotationSegment[],
+  annotationsDir: string
+): AnnotationSegment[] {
+  if (!fs.existsSync(annotationsDir)) {
+    console.log("Annotations directory does not exist, skipping adjustment");
+    return segments;
+  }
+
+  const path = require("path");
+  const files = fs.readdirSync(annotationsDir);
+
+  // Parse annotation filenames to extract timing info
+  // Format: {start}_to_{end}_Careful.wav or {start}_to_{end}_Translation.wav
+  const annotationTimings = new Map<string, { start: number; end: number }>();
+
+  files.forEach((filename: string) => {
+    const match = filename.match(/^(\d+\.?\d*)_to_(\d+\.?\d*)_(Careful|Translation)\.wav$/);
+    if (match) {
+      const start = parseFloat(match[1]);
+      const end = parseFloat(match[2]);
+      const key = `${start}_${end}`;
+      annotationTimings.set(key, { start, end });
+    }
+  });
+
+  console.log(`Found ${annotationTimings.size} unique segment timings from annotation files`);
+
+  // For each segment, find the closest matching annotation timing
+  const updatedSegments = segments.map((segment, index) => {
+    let bestMatch: { start: number; end: number } | null = null;
+    let bestDistance = Infinity;
+
+    // Find annotation with closest timing match
+    annotationTimings.forEach((timing) => {
+      const distance = Math.abs(timing.start - segment.start) + Math.abs(timing.end - segment.end);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestMatch = timing;
+      }
+    });
+
+    // If we found a close match (within 1 second total difference), use it
+    if (bestMatch && bestDistance < 1.0) {
+      console.log(`Segment ${index}: Adjusting ${segment.start}-${segment.end} to ${bestMatch.start}-${bestMatch.end}`);
+      return {
+        ...segment,
+        start: bestMatch.start,
+        end: bestMatch.end,
+      };
+    }
+
+    return segment;
+  });
+
+  return updatedSegments;
 }
 
 /**
@@ -286,8 +379,58 @@ export function isElanFile(filePath: string): boolean {
 
 /**
  * Generate ELAN file path from media file path
- * e.g., "video.mp4" -> "video.eaf"
+ * Tries multiple naming patterns:
+ * 1. {mediaFile}.eaf - Lameta format
+ * 2. {mediaFile}.annotations.eaf - SayMore format
+ * 3. ANY .eaf file in the same directory (fallback for video using audio's ELAN file)
  */
 export function getElanFilePath(mediaFilePath: string): string {
-  return mediaFilePath.replace(/\.[^.]+$/, ".eaf");
+  const path = require("path");
+  const fs = require("fs");
+
+  const mediaDir = path.dirname(mediaFilePath);
+  const mediaBaseName = path.basename(mediaFilePath, path.extname(mediaFilePath));
+  const mediaFileWithExt = path.basename(mediaFilePath);
+
+  // Try multiple patterns
+  const patterns = [
+    path.join(mediaDir, `${mediaBaseName}.eaf`),                    // Lameta: video.eaf
+    path.join(mediaDir, `${mediaFileWithExt}.annotations.eaf`),     // SayMore: video.mp4.annotations.eaf
+    path.join(mediaDir, `${mediaBaseName}.annotations.eaf`),        // SayMore: video.annotations.eaf
+  ];
+
+  // Normalize spaces/underscores for each pattern
+  for (const pattern of patterns) {
+    const variants = [
+      pattern,
+      pattern.replace(/_/g, " "),
+      pattern.replace(/ /g, "_")
+    ];
+
+    for (const variant of variants) {
+      if (fs.existsSync(variant)) {
+        console.log(`Found ELAN file: ${variant}`);
+        return variant;
+      }
+    }
+  }
+
+  // Fallback: look for ANY .eaf file in the directory
+  // This handles cases where video uses audio file's ELAN file
+  try {
+    const files = fs.readdirSync(mediaDir);
+    for (const file of files) {
+      if (file.endsWith(".eaf") || file.endsWith(".annotations.eaf")) {
+        const fullPath = path.join(mediaDir, file);
+        console.log(`Found ELAN file (fallback): ${fullPath}`);
+        return fullPath;
+      }
+    }
+  } catch (error) {
+    console.error("Error scanning for ELAN files:", error);
+  }
+
+  // If nothing found, return the default pattern
+  console.log(`No ELAN file found, using default: ${patterns[0]}`);
+  return patterns[0];
 }

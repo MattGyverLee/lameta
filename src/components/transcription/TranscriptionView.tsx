@@ -84,6 +84,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
   mediaFilePath,
   eafFilePath,
   onClose,
+  mode = "annotate",
 }) => {
   // Initialize state
   const [state, setState] = useState<TranscriptionState>(() => ({
@@ -247,6 +248,8 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
 
   /**
    * Update segment boundaries (from waveform dragging)
+   * Handles contiguous segment borders - when two segments share a boundary,
+   * moving that boundary adjusts both segments together
    */
   const handleSegmentBoundaryChange = (
     segmentId: string,
@@ -254,9 +257,45 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     newEnd: number
   ) => {
     setState((prev) => {
-      const updatedSegments = prev.segments.map((seg) =>
-        seg.id === segmentId ? { ...seg, start: newStart, end: newEnd } : seg
-      );
+      const currentSegment = prev.segments.find((s) => s.id === segmentId);
+      if (!currentSegment) return prev;
+
+      const EPSILON = 0.001; // Tolerance for detecting contiguous boundaries (1ms)
+
+      // Sort segments by start time
+      const sortedSegments = [...prev.segments].sort((a, b) => a.start - b.start);
+      const currentIndex = sortedSegments.findIndex((s) => s.id === segmentId);
+
+      // Check if start boundary changed and if it's contiguous with previous segment
+      const startChanged = Math.abs(newStart - currentSegment.start) > EPSILON;
+      const prevSegment = currentIndex > 0 ? sortedSegments[currentIndex - 1] : null;
+      const isStartContiguousWithPrev =
+        prevSegment && Math.abs(currentSegment.start - prevSegment.end) < EPSILON;
+
+      // Check if end boundary changed and if it's contiguous with next segment
+      const endChanged = Math.abs(newEnd - currentSegment.end) > EPSILON;
+      const nextSegment = currentIndex < sortedSegments.length - 1 ? sortedSegments[currentIndex + 1] : null;
+      const isEndContiguousWithNext =
+        nextSegment && Math.abs(currentSegment.end - nextSegment.start) < EPSILON;
+
+      // Update segments
+      const updatedSegments = prev.segments.map((seg) => {
+        if (seg.id === segmentId) {
+          // Update the dragged segment
+          return { ...seg, start: newStart, end: newEnd };
+        } else if (startChanged && isStartContiguousWithPrev && seg.id === prevSegment?.id) {
+          // If start boundary moved and it's contiguous with previous segment,
+          // adjust previous segment's end to match
+          console.log(`Moving contiguous boundary: prev segment ${prevSegment.id} end adjusted to ${newStart}`);
+          return { ...seg, end: newStart };
+        } else if (endChanged && isEndContiguousWithNext && seg.id === nextSegment?.id) {
+          // If end boundary moved and it's contiguous with next segment,
+          // adjust next segment's start to match
+          console.log(`Moving contiguous boundary: next segment ${nextSegment.id} start adjusted to ${newEnd}`);
+          return { ...seg, start: newEnd };
+        }
+        return seg;
+      });
 
       // If this is the selected segment, update loop region too
       const loopRegion =
@@ -312,11 +351,22 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     const duration = state.playback.duration;
     const newSegmentId = `seg-${Date.now()}`;
 
-    // Default new segment: 3 seconds from current time
+    // Find the segment that contains or is just before current time
+    const sortedSegments = [...state.segments].sort((a, b) => a.start - b.start);
+    const prevSegment = sortedSegments
+      .filter((s) => s.start <= currentTime)
+      .sort((a, b) => b.start - a.start)[0]; // Get closest segment before current time
+
+    // Create new segment contiguously after the previous segment
+    // If there's a previous segment, start where it ends
+    // Otherwise start at current time
+    const newStart = prevSegment ? prevSegment.end : currentTime;
+    const newEnd = Math.min(newStart + 3, duration); // Default 3 seconds duration
+
     const newSegment: AnnotationSegment = {
       id: newSegmentId,
-      start: currentTime,
-      end: Math.min(currentTime + 3, duration),
+      start: newStart,
+      end: newEnd,
       text: "",
       translation: "",
     };
@@ -464,80 +514,53 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
     }
   };
 
-  return (
-    <div className="transcription-view">
-      {/* Header */}
-      <div className="transcription-header">
-        <h2 className="transcription-title">
-          Transcription: {mediaFilePath.split("/").pop()}
-        </h2>
-        <div className="transcription-actions">
-          {state.hasUnsavedChanges && (
-            <span className="unsaved-indicator">● Unsaved changes</span>
-          )}
-          <button onClick={saveEafFile} className="btn-save">
-            Save
-          </button>
-          <button onClick={onClose} className="btn-close">
-            Close
-          </button>
-        </div>
+  // Render based on mode
+  if (mode === "preview") {
+    return (
+      <div className="transcription-view">
+        <PreviewTab
+          mediaFilePath={state.mediaFilePath}
+          segments={state.segments}
+          audioTracks={state.audioTracks}
+          playback={state.playback}
+          onTogglePlay={handleTogglePlay}
+          onProgress={handleProgress}
+          onDuration={handleDuration}
+        />
       </div>
+    );
+  }
 
-      {/* Two-tab interface */}
-      <Tabs
-        className="transcription-tabs"
-        selectedIndex={activeTabIndex}
-        onSelect={(index) => setActiveTabIndex(index)}
-      >
-        <TabList className="transcription-tab-list">
-          <Tab className="transcription-tab" selectedClassName="selected">
-            Annotate
-          </Tab>
-          <Tab className="transcription-tab" selectedClassName="selected">
-            Preview
-          </Tab>
-        </TabList>
+  if (mode === "segment" || mode === "annotate") {
+    return (
+      <div className="transcription-view">
 
-        {/* Annotate Tab - SayMore-inspired transcription interface */}
-        <TabPanel className="transcription-tab-panel">
-          <AnnotateTab
-            mediaFilePath={state.mediaFilePath}
-            segments={state.segments}
-            selectedSegmentId={state.selectedSegmentId}
-            playback={state.playback}
-            onSegmentSelect={handleSegmentSelect}
-            onSegmentUpdate={handleSegmentUpdate}
-            onSegmentBoundaryChange={handleSegmentBoundaryChange}
-            onTogglePlay={handleTogglePlay}
-            onProgress={handleProgress}
-            onDuration={handleDuration}
-            onStartSegmentation={handleStartSegmentation}
-            onAddSegment={handleAddSegment}
-            onDeleteSegment={handleDeleteSegment}
-            onSplitSegment={handleSplitSegment}
-            onMergeSegments={handleMergeSegments}
-            onSave={saveEafFile}
-            onSaveRecording={handleSaveRecording}
-            isSegmenting={state.isSegmenting}
-          />
-        </TabPanel>
+        <AnnotateTab
+          mediaFilePath={state.mediaFilePath}
+          segments={state.segments}
+          selectedSegmentId={state.selectedSegmentId}
+          playback={state.playback}
+          onSegmentSelect={handleSegmentSelect}
+          onSegmentUpdate={handleSegmentUpdate}
+          onSegmentBoundaryChange={handleSegmentBoundaryChange}
+          onTogglePlay={handleTogglePlay}
+          onProgress={handleProgress}
+          onDuration={handleDuration}
+          onStartSegmentation={handleStartSegmentation}
+          onAddSegment={handleAddSegment}
+          onDeleteSegment={handleDeleteSegment}
+          onSplitSegment={handleSplitSegment}
+          onMergeSegments={handleMergeSegments}
+          onSave={saveEafFile}
+          onSaveRecording={handleSaveRecording}
+          isSegmenting={state.isSegmenting}
+          mode={mode}
+        />
+      </div>
+    );
+  }
 
-        {/* Preview Tab - Prestige-inspired multi-layer playback */}
-        <TabPanel className="transcription-tab-panel">
-          <PreviewTab
-            mediaFilePath={state.mediaFilePath}
-            segments={state.segments}
-            audioTracks={state.audioTracks}
-            playback={state.playback}
-            onTogglePlay={handleTogglePlay}
-            onProgress={handleProgress}
-            onDuration={handleDuration}
-          />
-        </TabPanel>
-      </Tabs>
-    </div>
-  );
+  return null;
 };
 
 export default TranscriptionView;

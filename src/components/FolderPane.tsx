@@ -39,6 +39,7 @@ import { RoCrateView } from "./RoCrate/RoCrateView";
 import userSettingsSingleton from "../other/UserSettings";
 import { HighlightableTab } from "./HighlightableTab";
 import TranscriptionView from "./transcription/TranscriptionView";
+import * as ElanFileHandler from "../model/file/ElanFileHandler";
 
 export interface IProps {
   folder: Folder;
@@ -470,6 +471,7 @@ const FileTabs: React.FunctionComponent<
       );
     }
     case "Audio":
+      const audioEafPath = ElanFileHandler.getElanFilePath(path);
       return (
         <Tabs key={tabsKey}>
           <TabList>
@@ -477,25 +479,42 @@ const FileTabs: React.FunctionComponent<
               <Trans>Audio</Trans>
             </Tab>
             <Tab>
+              <Trans>Segment</Trans>
+            </Tab>
+            <Tab>
               <Trans>Transcribe</Trans>
             </Tab>
             {standardMetaTabs}
           </TabList>
           <TabPanel>
-            <audio controls>
-              <source src={`file://${path}`} />
-            </audio>
+            <TranscriptionView
+              mediaFilePath={path}
+              eafFilePath={audioEafPath}
+              onClose={() => setTabIndex(0)}
+              mode="preview"
+            />
           </TabPanel>
           <TabPanel>
             <TranscriptionView
               mediaFilePath={path}
+              eafFilePath={audioEafPath}
               onClose={() => setTabIndex(0)}
+              mode="segment"
+            />
+          </TabPanel>
+          <TabPanel>
+            <TranscriptionView
+              mediaFilePath={path}
+              eafFilePath={audioEafPath}
+              onClose={() => setTabIndex(0)}
+              mode="annotate"
             />
           </TabPanel>
           {standardMetaPanels}
         </Tabs>
       );
     case "Video":
+      const videoEafPath = ElanFileHandler.getElanFilePath(path);
       return (
         <Tabs key={tabsKey}>
           <TabList>
@@ -503,27 +522,35 @@ const FileTabs: React.FunctionComponent<
               <Trans>Video</Trans>
             </Tab>
             <Tab>
+              <Trans>Segment</Trans>
+            </Tab>
+            <Tab>
               <Trans>Transcribe</Trans>
             </Tab>
             {standardMetaTabs}
           </TabList>
           <TabPanel>
-            <ReactPlayer
-              //config={{ file: { forceHLS: true } }}
-              // don't show the actual video, as that tends to lock the file and mess up file and folder renaming
-              light={dummyPreviewImage}
-              playing={true} // start playing when the "light" play button is clicked
-              url={`file://${path}`}
-              controls
-              onError={(e) => {
-                NotifyError("video error:" + e);
-              }}
+            <TranscriptionView
+              mediaFilePath={path}
+              eafFilePath={videoEafPath}
+              onClose={() => setTabIndex(0)}
+              mode="preview"
             />
           </TabPanel>
           <TabPanel>
             <TranscriptionView
               mediaFilePath={path}
+              eafFilePath={videoEafPath}
               onClose={() => setTabIndex(0)}
+              mode="segment"
+            />
+          </TabPanel>
+          <TabPanel>
+            <TranscriptionView
+              mediaFilePath={path}
+              eafFilePath={videoEafPath}
+              onClose={() => setTabIndex(0)}
+              mode="annotate"
             />
           </TabPanel>
           {standardMetaPanels}

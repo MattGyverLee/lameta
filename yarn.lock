@@ -18901,6 +18901,11 @@ watchpack@^2.2.0, watchpack@^2.4.1:
     glob-to-regexp "^0.4.1"
     graceful-fs "^4.1.2"
 
+wavesurfer.js@^7.8.0:
+  version "7.12.0"
+  resolved "https://registry.npmjs.org/wavesurfer.js/-/wavesurfer.js-7.12.0.tgz#1b865af796a1cf7223122ad6d546411558c81ba3"
+  integrity sha512-/5PSaKkIC7PblJKCmkSfuFQK/k/VgAflaVIVtu+owj/NqyKn0p4ni6eFwZD6lfm66PdiPZrc5y9OZ/GDzkAS0Q==
+
 wcwidth@^1.0.1:
   version "1.0.1"
   resolved "https://registry.npmjs.org/wcwidth/-/wcwidth-1.0.1.tgz#f0b0dcf915bc5ff1528afadb2c0e17b532da2fe8"

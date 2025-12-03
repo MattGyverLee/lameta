@@ -125,8 +125,8 @@ export class Session extends Folder {
   // we had previously for individual files. This method checks the <participants> for any contributions that
   // we might be missing in <contributions>.
   private handleLegacyParticipants() {
-    const legacyParticipantNames = this.properties
-      .getTextStringOrEmpty("participants")
+    const participantsText = this.properties.getTextStringOrEmpty("participants");
+    const legacyParticipantNames = (participantsText || "")
       .split(";")
       .map((s) => s.trim())
       .filter((s) => s);

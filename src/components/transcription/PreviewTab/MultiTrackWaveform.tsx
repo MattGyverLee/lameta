@@ -10,7 +10,8 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { AudioTrack } from "../shared/types";
+import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
+import { AudioTrack, AnnotationSegment } from "../shared/types";
 import "./MultiTrackWaveform.css";
 
 /**
@@ -31,17 +32,17 @@ export interface MultiTrackWaveformProps {
   /** Audio tracks to display */
   tracks: AudioTrack[];
 
+  /** Annotation segments to display as colored regions */
+  segments?: AnnotationSegment[];
+
   /** Whether playback is active */
   playing: boolean;
 
   /** Current playback time in seconds */
   currentTime: number;
 
-  /** Playback rate for kings */
+  /** Base playback rate (all tracks play at this speed) */
   playbackRate: number;
-
-  /** Kings/Princes configuration */
-  kingsPrincesMode: KingsPrincesMode;
 
   /** Callback when track volume changes */
   onVolumeChange: (trackIndex: number, volume: number) => void;
@@ -64,92 +65,45 @@ export interface MultiTrackWaveformProps {
  */
 export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
   tracks,
+  segments = [],
   playing,
   currentTime,
   playbackRate,
-  kingsPrincesMode,
   onVolumeChange,
   onMuteChange,
   onProgress,
   className = "",
 }) => {
   const wavesurferRefs = useRef<(WaveSurfer | null)[]>([]);
+  const regionsPluginRefs = useRef<(any | null)[]>([]);
   const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [readyStates, setReadyStates] = useState<boolean[]>(new Array(tracks.length).fill(false));
 
   /**
-   * Calculate effective playback rate for a track (Prestige algorithm)
-   *
-   * Kings & Princes logic:
-   * - King: Plays at base playback rate, determines segment duration
-   * - Prince: Time-stretches/compresses to match king's duration
-   *   - If prince is SHORTER than king → plays SLOWER (time-stretched)
-   *   - If prince is LONGER than king → plays FASTER (time-compressed)
-   *
-   * Formula: princeSpeed = princeDuration / (kingDuration / playbackRate)
-   *
-   * This ensures all tracks end simultaneously at segment boundaries.
+   * All tracks play at base playback rate
+   * Sequential playback is handled by parent component
    */
-  const getEffectivePlaybackRate = (track: AudioTrack, trackIndex: number): number => {
-    if (track.muted) return playbackRate;
+  const getEffectivePlaybackRate = (): number => {
+    return playbackRate;
+  };
 
-    // All Kings mode: everything plays at base speed
-    if (!kingsPrincesMode.useKingsPrincesLogic) {
-      return playbackRate;
-    }
+  /**
+   * Get color for segment region (rainbow palette matching AnnotateTab)
+   */
+  const getSegmentColor = (index: number): string => {
+    // Rainbow color palette (cycling through hues)
+    const colors = [
+      "rgba(255, 99, 132, 0.3)",   // Red
+      "rgba(255, 159, 64, 0.3)",   // Orange
+      "rgba(255, 205, 86, 0.3)",   // Yellow
+      "rgba(75, 192, 192, 0.3)",   // Cyan
+      "rgba(54, 162, 235, 0.3)",   // Blue
+      "rgba(153, 102, 255, 0.3)",  // Purple
+      "rgba(201, 203, 207, 0.3)",  // Gray
+      "rgba(255, 99, 255, 0.3)",   // Magenta
+    ];
 
-    // Check if this track is a king
-    const isKing = track.volume >= kingsPrincesMode.kingThreshold;
-
-    if (isKing) {
-      // Kings play at base playback rate
-      return playbackRate;
-    } else {
-      // Prince: adjust speed to match king's play duration
-      // Get this prince's audio duration
-      const princeWs = wavesurferRefs.current[trackIndex];
-      if (!princeWs || !readyStates[trackIndex]) {
-        // Not ready yet, use base rate temporarily
-        return playbackRate;
-      }
-
-      const princeDuration = princeWs.getDuration();
-      if (!princeDuration || princeDuration === 0) {
-        return playbackRate;
-      }
-
-      // Find the king track and get its duration
-      let kingDuration = 0;
-
-      // Priority: source (0), careful (1), translation (2)
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        if (!t.muted && t.volume >= kingsPrincesMode.kingThreshold) {
-          const kingWs = wavesurferRefs.current[i];
-          if (kingWs && readyStates[i]) {
-            kingDuration = kingWs.getDuration();
-            break;
-          }
-        }
-      }
-
-      if (kingDuration === 0) {
-        // No king found, prince plays at base rate
-        return playbackRate;
-      }
-
-      // Calculate how long the king will take to play at its speed
-      const kingPlayDuration = kingDuration / playbackRate;
-
-      // Calculate prince speed to end at same time as king
-      // From Prestige: A2Speed = (A2Stop - A2Start) / kingLen
-      const princeSpeed = princeDuration / kingPlayDuration;
-
-      // Examples:
-      // - Prince 3s, king plays for 10s: 3/10 = 0.3x (stretched, slower)
-      // - Prince 15s, king plays for 10s: 15/10 = 1.5x (compressed, faster)
-      return princeSpeed;
-    }
+    return colors[index % colors.length];
   };
 
   /**
@@ -169,14 +123,135 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
   };
 
   /**
+   * Check if URL is a segment files array (JSON format)
+   */
+  const isSegmentFilesUrl = (url: string): boolean => {
+    if (!url) return false;
+    try {
+      const parsed = JSON.parse(url);
+      return Array.isArray(parsed) && parsed.length > 0 && parsed[0].path !== undefined;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Concatenate audio files using Web Audio API
+   */
+  const concatenateAudioFiles = async (segmentFiles: any[]): Promise<Blob> => {
+    const audioContext = new AudioContext();
+    const audioBuffers: AudioBuffer[] = [];
+
+    // Load all segment files
+    for (const segmentFile of segmentFiles) {
+      const response = await fetch(`file://${segmentFile.path}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      audioBuffers.push(audioBuffer);
+    }
+
+    // Calculate total length
+    const totalLength = audioBuffers.reduce((sum, buffer) => sum + buffer.length, 0);
+    const numberOfChannels = audioBuffers[0].numberOfChannels;
+    const sampleRate = audioBuffers[0].sampleRate;
+
+    // Create concatenated buffer
+    const concatenatedBuffer = audioContext.createBuffer(
+      numberOfChannels,
+      totalLength,
+      sampleRate
+    );
+
+    // Copy data from each buffer
+    let offset = 0;
+    for (const buffer of audioBuffers) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        concatenatedBuffer.getChannelData(channel).set(buffer.getChannelData(channel), offset);
+      }
+      offset += buffer.length;
+    }
+
+    // Convert to WAV blob
+    const wavBlob = await audioBufferToWav(concatenatedBuffer);
+    return wavBlob;
+  };
+
+  /**
+   * Convert AudioBuffer to WAV Blob
+   */
+  const audioBufferToWav = async (buffer: AudioBuffer): Promise<Blob> => {
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1; // PCM
+    const bitDepth = 16;
+
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numberOfChannels * bytesPerSample;
+
+    const data = new Float32Array(buffer.length * numberOfChannels);
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < buffer.length; i++) {
+        data[i * numberOfChannels + channel] = channelData[i];
+      }
+    }
+
+    const dataLength = data.length * bytesPerSample;
+    const bufferLength = 44 + dataLength;
+    const arrayBuffer = new ArrayBuffer(bufferLength);
+    const view = new DataView(arrayBuffer);
+
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, bufferLength - 8, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, format, true);
+    view.setUint16(22, numberOfChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataLength, true);
+
+    // PCM samples
+    let offset = 44;
+    for (let i = 0; i < data.length; i++) {
+      const sample = Math.max(-1, Math.min(1, data[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      offset += 2;
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
+  };
+
+  /**
    * Initialize WaveSurfer instances
    */
   useEffect(() => {
-    tracks.forEach((track, index) => {
-      if (!containerRefs.current[index] || !track.url) return;
+    tracks.forEach(async (track, index) => {
+      if (!containerRefs.current[index]) return;
+
+      // Skip if no URL and no segment files
+      if (!track.url && (!track.segmentFiles || track.segmentFiles.length === 0)) return;
+
+      // Check if this track has segment files
+      const hasSegmentFiles = track.segmentFiles && track.segmentFiles.length > 0;
 
       // Create WaveSurfer instance if it doesn't exist
       if (!wavesurferRefs.current[index]) {
+        // Create regions plugin for segment boundaries
+        const regionsPlugin = RegionsPlugin.create();
+        regionsPluginRefs.current[index] = regionsPlugin;
+
         const ws = WaveSurfer.create({
           container: containerRefs.current[index]!,
           waveColor: "#94c397",
@@ -185,11 +260,27 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
           normalize: true,
           barWidth: 2,
           barGap: 1,
+          plugins: [regionsPlugin],
         });
 
-        ws.load(track.url);
+        if (hasSegmentFiles) {
+          // Concatenate segment files
+          try {
+            console.log(`Concatenating ${track.segmentFiles!.length} segment files for track ${index}`);
+            const concatenatedBlob = await concatenateAudioFiles(track.segmentFiles!);
+            const blobUrl = URL.createObjectURL(concatenatedBlob);
+            ws.load(blobUrl);
+          } catch (error) {
+            console.error("Failed to concatenate segment files:", error);
+          }
+        } else {
+          // Regular single audio file
+          ws.load(track.url);
+        }
 
         ws.on("ready", () => {
+          const duration = ws.getDuration();
+          console.log(`Track ${index} (${getTrackLabel(index)}) waveform ready. Duration: ${duration.toFixed(3)}s`);
           setReadyStates((prev) => {
             const newStates = [...prev];
             newStates[index] = true;
@@ -265,17 +356,135 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
   }, [tracks, readyStates]);
 
   /**
-   * Sync playback rate (with kings/princes logic)
+   * Sync playback rate (all tracks play at base rate)
    */
   useEffect(() => {
     wavesurferRefs.current.forEach((ws, index) => {
       if (!ws || !readyStates[index]) return;
 
-      const track = tracks[index];
-      const effectiveRate = getEffectivePlaybackRate(track, index);
+      const effectiveRate = getEffectivePlaybackRate();
       ws.setPlaybackRate(effectiveRate);
     });
-  }, [playbackRate, tracks, kingsPrincesMode, readyStates]);
+  }, [playbackRate, readyStates]);
+
+  /**
+   * Add segment regions to all tracks
+   * - Source track: regions at original timeline positions
+   * - Careful/Translation tracks (merged): regions for each clip (concatenated), colored by source segment
+   */
+  useEffect(() => {
+    if (segments.length === 0) return;
+
+    regionsPluginRefs.current.forEach((regionsPlugin, trackIndex) => {
+      if (!regionsPlugin || !readyStates[trackIndex]) return;
+
+      // Clear existing regions
+      regionsPlugin.clearRegions();
+
+      const track = tracks[trackIndex];
+
+      // Check if this track has segment files metadata (merged annotation track)
+      if (track.segmentFiles && track.segmentFiles.length > 0) {
+        // For merged annotation tracks: create regions for each clip based on concatenated position
+        let currentPosition = 0;
+
+        console.log(`\n=== Track ${trackIndex} (${getTrackLabel(trackIndex)}): Processing ${track.segmentFiles.length} segment files ===`);
+        console.log('All segments in ELAN:', segments.map((s, i) => `[${i}] ${s.start.toFixed(3)}-${s.end.toFixed(3)}`).join(', '));
+
+        const waveformDuration = wavesurferRefs.current[trackIndex]?.getDuration() || 0;
+
+        track.segmentFiles.forEach((segmentFile, clipIndex) => {
+          // Find the corresponding segment index to get the right color
+          const segmentIndex = segments.findIndex(
+            s => Math.abs(s.start - segmentFile.start) < 0.001 && Math.abs(s.end - segmentFile.end) < 0.001
+          );
+
+          const color = segmentIndex >= 0 ? getSegmentColor(segmentIndex) : 'gray';
+          const regionStart = currentPosition;
+          const regionEnd = currentPosition + segmentFile.duration;
+
+          console.log(`  Clip ${clipIndex}: ${segmentFile.start.toFixed(3)}-${segmentFile.end.toFixed(3)} (duration: ${segmentFile.duration.toFixed(3)}s)`);
+          console.log(`    → Matched to segment index: ${segmentIndex} (color: ${color})`);
+          console.log(`    → Region position: ${regionStart.toFixed(3)}s - ${regionEnd.toFixed(3)}s`);
+
+          if (segmentIndex >= 0) {
+            // Check if region is within waveform bounds
+            if (regionStart >= waveformDuration) {
+              console.warn(`    ⚠️ Region starts at ${regionStart.toFixed(3)}s but waveform only has ${waveformDuration.toFixed(3)}s - SKIPPING (merged file is incomplete)`);
+            } else if (regionEnd > waveformDuration) {
+              console.warn(`    ⚠️ Region ends at ${regionEnd.toFixed(3)}s but waveform only has ${waveformDuration.toFixed(3)}s - CLIPPING to fit`);
+              // Add region but clip it to waveform duration
+              regionsPlugin.addRegion({
+                id: `${trackIndex}-${segments[segmentIndex].id}`,
+                start: regionStart,
+                end: waveformDuration - 0.001, // Slightly before end to ensure visibility
+                color: color,
+                drag: false,
+                resize: false,
+              });
+            } else {
+              // Add region normally
+              regionsPlugin.addRegion({
+                id: `${trackIndex}-${segments[segmentIndex].id}`,
+                start: regionStart,
+                end: regionEnd,
+                color: color,
+                drag: false,
+                resize: false,
+              });
+            }
+          } else {
+            console.warn(`    ⚠️ No matching segment found for ${segmentFile.start}-${segmentFile.end}`);
+          }
+
+          currentPosition += segmentFile.duration;
+        });
+
+        console.log(`  Total duration: ${currentPosition.toFixed(3)}s\n`);
+      } else if (isSegmentFilesUrl(track.url)) {
+        // Fallback: for segment-based tracks using JSON array
+        try {
+          const segmentFiles = JSON.parse(track.url);
+          let currentPosition = 0;
+
+          console.log(`Track ${trackIndex} (${getTrackLabel(trackIndex)}): Processing ${segmentFiles.length} segment files (fallback)`);
+
+          segmentFiles.forEach((segmentFile: any, clipIndex: number) => {
+            const segmentIndex = segments.findIndex(
+              s => Math.abs(s.start - segmentFile.start) < 0.001 && Math.abs(s.end - segmentFile.end) < 0.001
+            );
+
+            if (segmentIndex >= 0) {
+              regionsPlugin.addRegion({
+                id: `${trackIndex}-${segments[segmentIndex].id}`,
+                start: currentPosition,
+                end: currentPosition + segmentFile.duration,
+                color: getSegmentColor(segmentIndex),
+                drag: false,
+                resize: false,
+              });
+            }
+
+            currentPosition += segmentFile.duration;
+          });
+        } catch (error) {
+          console.error("Failed to create regions for segment files:", error);
+        }
+      } else {
+        // For source track: add regions at original timeline positions
+        segments.forEach((segment, segmentIndex) => {
+          regionsPlugin.addRegion({
+            id: `${trackIndex}-${segment.id}`,
+            start: segment.start,
+            end: segment.end,
+            color: getSegmentColor(segmentIndex),
+            drag: false,  // Disable dragging in preview tab
+            resize: false, // Disable resizing in preview tab
+          });
+        });
+      }
+    });
+  }, [segments, readyStates, tracks]);
 
   /**
    * Handle volume slider change
@@ -291,35 +500,10 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
     onMuteChange(trackIndex, checked);
   };
 
-  /**
-   * Render track status indicator
-   */
-  const renderTrackStatus = (track: AudioTrack, trackIndex: number): React.ReactNode => {
-    if (!kingsPrincesMode.useKingsPrincesLogic || track.muted) {
-      return null;
-    }
-
-    const isKing = track.volume >= kingsPrincesMode.kingThreshold;
-    return (
-      <span className={`track-status ${isKing ? "king" : "prince"}`} title={isKing ? "King (normal speed)" : "Prince (slower speed)"}>
-        {isKing ? "👑" : "🤴"}
-      </span>
-    );
-  };
+  // Removed track status rendering - no kings/princes distinction
 
   return (
     <div className={`multi-track-waveform ${className}`}>
-      {/* Kings/Princes Mode Indicator */}
-      <div className="mode-indicator">
-        <strong>Playback Mode:</strong>{" "}
-        {kingsPrincesMode.useKingsPrincesLogic ? "Kings & Princes" : "All Kings"}
-        {kingsPrincesMode.useKingsPrincesLogic && (
-          <span className="mode-hint" title="Tracks >= 84% volume play at normal speed (kings), tracks < 84% play slower (princes)">
-            {" "}ℹ️
-          </span>
-        )}
-      </div>
-
       {/* Track List */}
       {tracks.map((track, index) => (
         <div key={index} className="audio-track">
@@ -327,7 +511,6 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
           <div className="track-header">
             <div className="track-label">
               <strong>{getTrackLabel(index)}</strong>
-              {renderTrackStatus(track, index)}
             </div>
             <div className="track-controls">
               {/* Mute Checkbox */}
@@ -362,12 +545,12 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
             ref={(el) => (containerRefs.current[index] = el)}
             className="track-waveform"
           >
-            {!track.url && (
+            {!track.url && (!track.segmentFiles || track.segmentFiles.length === 0) && (
               <div className="no-audio-placeholder">
                 <p>No audio file for this track</p>
               </div>
             )}
-            {track.url && !readyStates[index] && (
+            {(track.url || (track.segmentFiles && track.segmentFiles.length > 0)) && !readyStates[index] && (
               <div className="loading-placeholder">
                 <p>Loading waveform...</p>
               </div>

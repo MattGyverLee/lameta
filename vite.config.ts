@@ -55,6 +55,7 @@ export default defineConfig({
         "src/mainProcess/launchTest.ts",
         "src/other/locateDependency.ts",
         "src/mainProcess/MainProcessApi.ts",
+        "src/mainProcess/ffmpegService.ts",
         "src/mainProcess/preload/index.ts",
         "src/mainProcess/validateImdi.ts",
         "src/getTestEnvironment.ts"
