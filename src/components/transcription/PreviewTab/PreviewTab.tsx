@@ -3,9 +3,9 @@
  * Provides synchronized playback of source, careful speech, and translation tracks
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./PreviewTab.css";
-import VideoPlayerSection from "../shared/VideoPlayerSection";
+import VideoPlayerSection, { VideoPlayerSectionHandle } from "../shared/VideoPlayerSection";
 import MultiTrackWaveform, { KingsPrincesMode } from "./MultiTrackWaveform";
 import ExportDialog, { ExportSettings } from "./ExportDialog";
 import ExportProgressDialog, { ExportProgress } from "./ExportProgressDialog";
@@ -15,6 +15,8 @@ import {
   AnnotationSegment,
   AudioTrack,
   PlaybackState,
+  SequentialPlaybackState,
+  MultiTrackWaveformHandle,
 } from "../shared/types";
 const path = require("path");
 const fs = require("fs");
@@ -287,6 +289,20 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   const [carefulSegments, setCarefulSegments] = useState<SegmentAudioFile[]>([]);
   const [translationSegments, setTranslationSegments] = useState<SegmentAudioFile[]>([]);
 
+  // Sequential playback state
+  const [sequentialPlayback, setSequentialPlayback] = useState<SequentialPlaybackState>({
+    isPlaying: false,
+    currentSegmentIndex: 0,
+    currentTrackIndex: 0,
+    autoAdvance: true,
+  });
+
+  // Ref to MultiTrackWaveform for imperative control
+  const multiTrackRef = useRef<MultiTrackWaveformHandle>(null);
+
+  // Ref to VideoPlayerSection for video speed control
+  const videoRef = useRef<VideoPlayerSectionHandle>(null);
+
   // Note: Removed kings/princes mode - all tracks play sequentially at base playback rate
 
   /**
@@ -537,6 +553,186 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   };
 
   /**
+   * Find the next active (non-muted, has audio) track in sequence
+   * Returns track index or -1 if no more tracks available
+   */
+  const findNextActiveTrack = (
+    startTrackIndex: number,
+    segmentIndex: number
+  ): number => {
+    for (let i = startTrackIndex; i < tracks.length; i++) {
+      const track = tracks[i];
+
+      // Skip muted tracks
+      if (track.muted) continue;
+
+      // Check if track has audio for this segment
+      if (track.id === "source") {
+        // Source always has audio (it's the original file)
+        return i;
+      } else if (track.id === "careful") {
+        // Check if careful has audio for this segment
+        const hasAudio = carefulSegments.some(
+          (seg) => seg.start === segments[segmentIndex].start
+        );
+        if (hasAudio) return i;
+      } else if (track.id === "translation") {
+        // Check if translation has audio for this segment
+        const hasAudio = translationSegments.some(
+          (seg) => seg.start === segments[segmentIndex].start
+        );
+        if (hasAudio) return i;
+      }
+    }
+    return -1; // No more active tracks
+  };
+
+  /**
+   * Calculate video speed for the current playback state
+   * Based on Prestige's calcPlaybackRate formula
+   */
+  const calculateVideoSpeed = (
+    segmentIndex: number,
+    trackIndex: number
+  ): number => {
+    const baseRate = playback.playbackRate;
+    const segment = segments[segmentIndex];
+    const track = tracks[trackIndex];
+
+    if (!segment) return baseRate;
+
+    // Source track: video plays at base rate
+    if (track.id === "source") {
+      return baseRate;
+    }
+
+    // Annotation tracks: video speed = sourceSegmentDuration / (audioClipDuration / baseRate)
+    const sourceSegmentDuration = segment.end - segment.start;
+
+    if (track.id === "careful") {
+      const carefulClip = carefulSegments.find(
+        (seg) => seg.start === segment.start
+      );
+      if (carefulClip) {
+        const audioClipDuration = carefulClip.duration;
+        return (sourceSegmentDuration / (audioClipDuration / baseRate));
+      }
+    } else if (track.id === "translation") {
+      const translationClip = translationSegments.find(
+        (seg) => seg.start === segment.start
+      );
+      if (translationClip) {
+        const audioClipDuration = translationClip.duration;
+        return (sourceSegmentDuration / (audioClipDuration / baseRate));
+      }
+    }
+
+    return baseRate;
+  };
+
+  /**
+   * Play a specific track for a specific segment
+   */
+  const playTrack = (segmentIndex: number, trackIndex: number) => {
+    if (!multiTrackRef.current) return;
+
+    const segment = segments[segmentIndex];
+    if (!segment) return;
+
+    console.log(`Playing segment ${segmentIndex}, track ${trackIndex} (${tracks[trackIndex].label})`);
+
+    // Update sequential playback state
+    setSequentialPlayback({
+      isPlaying: true,
+      currentSegmentIndex: segmentIndex,
+      currentTrackIndex: trackIndex,
+      autoAdvance: true,
+    });
+
+    // Calculate video speed for this track
+    const videoSpeed = calculateVideoSpeed(segmentIndex, trackIndex);
+    console.log(`Video speed: ${videoSpeed.toFixed(3)}x`);
+
+    // Seek video to segment start (video always follows source timeline)
+    if (videoRef.current) {
+      videoRef.current.seekTo(segment.start, "seconds");
+    }
+
+    // Play the segment on the track
+    multiTrackRef.current.playSegment(segmentIndex, trackIndex);
+  };
+
+  /**
+   * Handle track finished event - advance to next track or next segment
+   */
+  const handleTrackFinished = () => {
+    if (!sequentialPlayback.autoAdvance) return;
+
+    const { currentSegmentIndex, currentTrackIndex } = sequentialPlayback;
+
+    // Briefly pause playback state during transition to pause video
+    setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
+
+    // Try to find next active track in current segment
+    const nextTrack = findNextActiveTrack(currentTrackIndex + 1, currentSegmentIndex);
+
+    if (nextTrack !== -1) {
+      // Play next track in current segment (after brief delay for smooth transition)
+      setTimeout(() => {
+        playTrack(currentSegmentIndex, nextTrack);
+      }, 100);
+    } else {
+      // Move to next segment
+      const nextSegmentIndex = currentSegmentIndex + 1;
+      if (nextSegmentIndex < segments.length) {
+        // Find first active track in next segment
+        const firstTrack = findNextActiveTrack(0, nextSegmentIndex);
+        if (firstTrack !== -1) {
+          setTimeout(() => {
+            playTrack(nextSegmentIndex, firstTrack);
+          }, 100);
+        } else {
+          // No active tracks in next segment, stop playback
+          console.log("No active tracks in next segment, stopping");
+          setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
+        }
+      } else {
+        // Reached end of segments, stop playback
+        console.log("Reached end of segments, stopping");
+        setSequentialPlayback((prev) => ({ ...prev, isPlaying: false }));
+      }
+    }
+  };
+
+  /**
+   * Start sequential playback from the beginning
+   */
+  const startSequentialPlayback = () => {
+    if (segments.length === 0) return;
+
+    // Find first active track in first segment
+    const firstTrack = findNextActiveTrack(0, 0);
+    if (firstTrack !== -1) {
+      playTrack(0, firstTrack);
+    }
+  };
+
+  /**
+   * Stop sequential playback
+   */
+  const stopSequentialPlayback = () => {
+    if (multiTrackRef.current) {
+      multiTrackRef.current.stopAll();
+    }
+    setSequentialPlayback({
+      isPlaying: false,
+      currentSegmentIndex: 0,
+      currentTrackIndex: 0,
+      autoAdvance: true,
+    });
+  };
+
+  /**
    * Video playback synchronization
    *
    * Video speed adjusts based on which track is currently playing:
@@ -545,13 +741,43 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
    *
    * This ensures the video reaches segment boundaries at the same time as the audio.
    */
-  const videoPlayback = playback;
+  const videoPlayback: PlaybackState = React.useMemo(() => {
+    // Calculate adjusted video speed based on current track
+    const videoSpeed = sequentialPlayback.isPlaying
+      ? calculateVideoSpeed(
+          sequentialPlayback.currentSegmentIndex,
+          sequentialPlayback.currentTrackIndex
+        )
+      : playback.playbackRate;
+
+    // Clamp video speed to reasonable bounds (0.2x to 14.5x, matching Prestige)
+    const clampedSpeed = Math.max(0.2, Math.min(14.5, videoSpeed));
+
+    if (sequentialPlayback.isPlaying) {
+      console.log(`Video playback rate: ${clampedSpeed.toFixed(3)}x (base: ${playback.playbackRate}x)`);
+    }
+
+    return {
+      ...playback,
+      playbackRate: clampedSpeed,
+      playing: sequentialPlayback.isPlaying, // Video plays when sequential playback is active
+      muted: true, // Video is always muted (audio comes from WaveSurfer tracks)
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sequentialPlayback.isPlaying,
+    sequentialPlayback.currentSegmentIndex,
+    sequentialPlayback.currentTrackIndex,
+    // Note: playback object changes on every currentTime update, but we only need
+    // to recalculate when segment/track changes, not on every time update
+  ]);
 
   return (
     <div className="preview-tab">
       {/* Video Player Section */}
       <div className="video-section">
         <VideoPlayerSection
+          ref={videoRef}
           url={mediaFilePath}
           playback={videoPlayback}
           onProgress={onProgress}
@@ -563,14 +789,17 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       {/* Multi-Track Waveform Section */}
       <div className="multi-track-section">
         <MultiTrackWaveform
+          ref={multiTrackRef}
           tracks={tracks}
           segments={segments}
           playing={playback.playing}
           currentTime={playback.currentTime}
           playbackRate={playback.playbackRate}
+          currentlyPlayingTrack={sequentialPlayback.isPlaying ? sequentialPlayback.currentTrackIndex : undefined}
           onVolumeChange={handleVolumeChange}
           onMuteChange={handleMuteChange}
           onProgress={onProgress}
+          onTrackFinished={handleTrackFinished}
         />
       </div>
 
@@ -622,11 +851,24 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
       {/* Playback Controls */}
       <div className="playback-controls">
-        <button onClick={onTogglePlay}>
-          {playback.playing ? "⏸ Pause" : "▶ Play"}
+        <button
+          onClick={() => {
+            if (sequentialPlayback.isPlaying) {
+              stopSequentialPlayback();
+            } else {
+              startSequentialPlayback();
+            }
+          }}
+        >
+          {sequentialPlayback.isPlaying ? "⏸ Pause" : "▶ Play"}
         </button>
+        <button onClick={stopSequentialPlayback}>⏹ Stop</button>
         <span className="time-display">
           {playback.currentTime.toFixed(1)}s / {playback.duration.toFixed(1)}s
+        </span>
+        <span className="playback-status">
+          {sequentialPlayback.isPlaying &&
+            `Playing: Segment ${sequentialPlayback.currentSegmentIndex + 1}/${segments.length} - ${tracks[sequentialPlayback.currentTrackIndex]?.label || ""}`}
         </span>
         <label>
           Speed:

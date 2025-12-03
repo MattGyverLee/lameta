@@ -3,10 +3,19 @@
  * Wraps ReactPlayer for video/audio playback
  */
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import ReactPlayer from "react-player";
 import { VideoPlayerSectionProps } from "./types";
 import "./VideoPlayerSection.css";
+
+/**
+ * Imperative handle for VideoPlayerSection
+ */
+export interface VideoPlayerSectionHandle {
+  seekTo: (time: number, type?: "seconds" | "fraction") => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+}
 
 /**
  * VideoPlayerSection Component
@@ -17,15 +26,32 @@ import "./VideoPlayerSection.css";
  * - Duration detection
  * - Playback rate control
  */
-export const VideoPlayerSection: React.FC<VideoPlayerSectionProps> = ({
+export const VideoPlayerSection = forwardRef<VideoPlayerSectionHandle, VideoPlayerSectionProps>(({
   url,
   playback,
   onProgress,
   onDuration,
   onPlayPause,
   className = "",
-}) => {
+}, ref) => {
   const playerRef = useRef<ReactPlayer>(null);
+
+  /**
+   * Expose imperative handle for parent component control
+   */
+  useImperativeHandle(ref, () => ({
+    seekTo: (time: number, type: "seconds" | "fraction" = "seconds") => {
+      if (playerRef.current) {
+        playerRef.current.seekTo(time, type);
+      }
+    },
+    getCurrentTime: () => {
+      return playerRef.current ? playerRef.current.getCurrentTime() : 0;
+    },
+    getDuration: () => {
+      return playerRef.current ? playerRef.current.getDuration() : 0;
+    },
+  }));
 
   /**
    * Handle progress updates from ReactPlayer
@@ -134,6 +160,8 @@ export const VideoPlayerSection: React.FC<VideoPlayerSectionProps> = ({
       </div>
     </div>
   );
-};
+});
+
+VideoPlayerSection.displayName = "VideoPlayerSection";
 
 export default VideoPlayerSection;

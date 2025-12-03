@@ -8,10 +8,10 @@
  * 2. All Kings mode: All enabled tracks play at normal speed
  */
 
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
-import { AudioTrack, AnnotationSegment } from "../shared/types";
+import { AudioTrack, AnnotationSegment, MultiTrackWaveformHandle } from "../shared/types";
 import "./MultiTrackWaveform.css";
 
 /**
@@ -44,6 +44,9 @@ export interface MultiTrackWaveformProps {
   /** Base playback rate (all tracks play at this speed) */
   playbackRate: number;
 
+  /** Index of currently playing track (for visual feedback) */
+  currentlyPlayingTrack?: number;
+
   /** Callback when track volume changes */
   onVolumeChange: (trackIndex: number, volume: number) => void;
 
@@ -52,6 +55,9 @@ export interface MultiTrackWaveformProps {
 
   /** Callback when playback position changes */
   onProgress?: (currentTime: number) => void;
+
+  /** Callback when a track finishes playing (for sequential playback) */
+  onTrackFinished?: () => void;
 
   /** Optional CSS class name */
   className?: string;
@@ -63,21 +69,179 @@ export interface MultiTrackWaveformProps {
  * Displays multiple audio tracks with synchronized playback.
  * Implements Prestige-inspired kings/princes logic for multi-layer playback.
  */
-export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
+export const MultiTrackWaveform = forwardRef<MultiTrackWaveformHandle, MultiTrackWaveformProps>(({
   tracks,
   segments = [],
   playing,
   currentTime,
   playbackRate,
+  currentlyPlayingTrack,
   onVolumeChange,
   onMuteChange,
   onProgress,
+  onTrackFinished,
   className = "",
-}) => {
+}, ref) => {
   const wavesurferRefs = useRef<(WaveSurfer | null)[]>([]);
   const regionsPluginRefs = useRef<(any | null)[]>([]);
   const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [readyStates, setReadyStates] = useState<boolean[]>(new Array(tracks.length).fill(false));
+
+  // Track active event listeners for cleanup
+  const activeListenersRef = useRef<Map<number, () => void>>(new Map());
+
+  /**
+   * Expose imperative handle for parent component control
+   */
+  useImperativeHandle(ref, () => ({
+    playSegment: (segmentIndex: number, trackIndex: number) => {
+      const wavesurfer = wavesurferRefs.current[trackIndex];
+      const track = tracks[trackIndex];
+
+      if (!wavesurfer || !track || !segments) return;
+
+      const segment = segments[segmentIndex];
+      if (!segment) return;
+
+      console.log(`MultiTrackWaveform.playSegment: segment ${segmentIndex}, track ${trackIndex} (${track.label})`);
+
+      // Clean up any existing listener for this track
+      const existingListener = activeListenersRef.current.get(trackIndex);
+      if (existingListener) {
+        wavesurfer.un("audioprocess", existingListener);
+        activeListenersRef.current.delete(trackIndex);
+      }
+
+      // Pause all other tracks
+      wavesurferRefs.current.forEach((ws, idx) => {
+        if (ws && idx !== trackIndex) {
+          ws.pause();
+        }
+      });
+
+      // For source track: seek to segment start and play
+      if (track.id === "source") {
+        const duration = wavesurfer.getDuration();
+        if (duration > 0) {
+          const relativeStart = segment.start / duration;
+          console.log(`  Seeking to ${segment.start}s (${(relativeStart * 100).toFixed(1)}% of ${duration.toFixed(2)}s)`);
+          wavesurfer.seekTo(relativeStart);
+
+          // Set up finish event for this segment
+          const handleFinish = () => {
+            const currentTime = wavesurfer.getCurrentTime();
+            if (currentTime >= segment.end - 0.05) { // Small buffer for timing accuracy
+              console.log(`  Segment finished at ${currentTime.toFixed(3)}s (end: ${segment.end}s)`);
+              wavesurfer.pause();
+
+              // Clean up listener
+              wavesurfer.un("audioprocess", handleFinish);
+              activeListenersRef.current.delete(trackIndex);
+
+              // Notify parent
+              if (onTrackFinished) {
+                setTimeout(() => onTrackFinished(), 50); // Small delay for smooth transition
+              }
+            }
+          };
+
+          activeListenersRef.current.set(trackIndex, handleFinish);
+          wavesurfer.on("audioprocess", handleFinish);
+
+          wavesurfer.play();
+        }
+      } else {
+        // For annotation tracks: find concatenated position
+        const segmentFiles = (track as any).segmentFiles || [];
+        let currentPosition = 0;
+        let targetPosition = -1;
+        let clipDuration = 0;
+
+        for (let i = 0; i < segmentFiles.length; i++) {
+          const segFile = segmentFiles[i];
+          if (Math.abs(segFile.start - segment.start) < 0.001) {
+            targetPosition = currentPosition;
+            clipDuration = segFile.duration;
+            break;
+          }
+          currentPosition += segFile.duration;
+        }
+
+        if (targetPosition >= 0) {
+          const duration = wavesurfer.getDuration();
+          if (duration > 0) {
+            const relativeStart = targetPosition / duration;
+            console.log(`  Seeking to concatenated position ${targetPosition.toFixed(3)}s (${(relativeStart * 100).toFixed(1)}% of ${duration.toFixed(2)}s), clip duration: ${clipDuration.toFixed(3)}s`);
+            wavesurfer.seekTo(relativeStart);
+
+            // Set up finish event for this clip
+            const targetEnd = targetPosition + clipDuration;
+            const handleFinish = () => {
+              const currentTime = wavesurfer.getCurrentTime();
+              if (currentTime >= targetEnd - 0.05) { // Small buffer for timing accuracy
+                console.log(`  Clip finished at ${currentTime.toFixed(3)}s (end: ${targetEnd.toFixed(3)}s)`);
+                wavesurfer.pause();
+
+                // Clean up listener
+                wavesurfer.un("audioprocess", handleFinish);
+                activeListenersRef.current.delete(trackIndex);
+
+                // Notify parent
+                if (onTrackFinished) {
+                  setTimeout(() => onTrackFinished(), 50); // Small delay for smooth transition
+                }
+              }
+            };
+
+            activeListenersRef.current.set(trackIndex, handleFinish);
+            wavesurfer.on("audioprocess", handleFinish);
+
+            wavesurfer.play();
+          }
+        }
+      }
+    },
+
+    pauseAll: () => {
+      wavesurferRefs.current.forEach((ws, idx) => {
+        if (ws) {
+          ws.pause();
+          // Clean up listener for this track
+          const listener = activeListenersRef.current.get(idx);
+          if (listener) {
+            ws.un("audioprocess", listener);
+            activeListenersRef.current.delete(idx);
+          }
+        }
+      });
+    },
+
+    stopAll: () => {
+      wavesurferRefs.current.forEach((ws, idx) => {
+        if (ws) {
+          ws.pause();
+          ws.seekTo(0);
+          // Clean up listener for this track
+          const listener = activeListenersRef.current.get(idx);
+          if (listener) {
+            ws.un("audioprocess", listener);
+            activeListenersRef.current.delete(idx);
+          }
+        }
+      });
+      activeListenersRef.current.clear();
+    },
+
+    getCurrentTime: (trackIndex: number) => {
+      const ws = wavesurferRefs.current[trackIndex];
+      return ws ? ws.getCurrentTime() : 0;
+    },
+
+    getDuration: (trackIndex: number) => {
+      const ws = wavesurferRefs.current[trackIndex];
+      return ws ? ws.getDuration() : 0;
+    },
+  }));
 
   /**
    * All tracks play at base playback rate
@@ -119,19 +283,6 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
         return "Translation"; // SayMore simple naming
       default:
         return `Track ${trackIndex + 1}`;
-    }
-  };
-
-  /**
-   * Check if URL is a segment files array (JSON format)
-   */
-  const isSegmentFilesUrl = (url: string): boolean => {
-    if (!url) return false;
-    try {
-      const parsed = JSON.parse(url);
-      return Array.isArray(parsed) && parsed.length > 0 && parsed[0].path !== undefined;
-    } catch {
-      return false;
     }
   };
 
@@ -308,39 +459,20 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
       });
       wavesurferRefs.current = [];
     };
-  }, [tracks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    // Only re-initialize if track count, URLs, or segment files change
+    // NOT when volume/mute changes (those are handled by separate effects)
+    tracks.length,
+    tracks.map(t => t.url).join(','),
+    tracks.map(t => t.segmentFiles?.length || 0).join(','),
+  ]);
 
   /**
-   * Sync playback state
+   * NOTE: Playback is now controlled imperatively via the ref handle.
+   * The old playback/seek sync effects have been removed to prevent conflicts
+   * with sequential playback control.
    */
-  useEffect(() => {
-    wavesurferRefs.current.forEach((ws, index) => {
-      if (!ws || !readyStates[index]) return;
-
-      if (playing) {
-        ws.play();
-      } else {
-        ws.pause();
-      }
-    });
-  }, [playing, readyStates]);
-
-  /**
-   * Sync playback position
-   */
-  useEffect(() => {
-    wavesurferRefs.current.forEach((ws, index) => {
-      if (!ws || !readyStates[index]) return;
-
-      const currentWsTime = ws.getCurrentTime();
-      const timeDiff = Math.abs(currentWsTime - currentTime);
-
-      // Only seek if difference is significant
-      if (timeDiff > 0.5) {
-        ws.seekTo(currentTime / ws.getDuration());
-      }
-    });
-  }, [currentTime, readyStates]);
 
   /**
    * Sync volume and mute state
@@ -441,35 +573,6 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
         });
 
         console.log(`  Total duration: ${currentPosition.toFixed(3)}s\n`);
-      } else if (isSegmentFilesUrl(track.url)) {
-        // Fallback: for segment-based tracks using JSON array
-        try {
-          const segmentFiles = JSON.parse(track.url);
-          let currentPosition = 0;
-
-          console.log(`Track ${trackIndex} (${getTrackLabel(trackIndex)}): Processing ${segmentFiles.length} segment files (fallback)`);
-
-          segmentFiles.forEach((segmentFile: any, clipIndex: number) => {
-            const segmentIndex = segments.findIndex(
-              s => Math.abs(s.start - segmentFile.start) < 0.001 && Math.abs(s.end - segmentFile.end) < 0.001
-            );
-
-            if (segmentIndex >= 0) {
-              regionsPlugin.addRegion({
-                id: `${trackIndex}-${segments[segmentIndex].id}`,
-                start: currentPosition,
-                end: currentPosition + segmentFile.duration,
-                color: getSegmentColor(segmentIndex),
-                drag: false,
-                resize: false,
-              });
-            }
-
-            currentPosition += segmentFile.duration;
-          });
-        } catch (error) {
-          console.error("Failed to create regions for segment files:", error);
-        }
       } else {
         // For source track: add regions at original timeline positions
         segments.forEach((segment, segmentIndex) => {
@@ -506,11 +609,17 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
     <div className={`multi-track-waveform ${className}`}>
       {/* Track List */}
       {tracks.map((track, index) => (
-        <div key={index} className="audio-track">
+        <div
+          key={index}
+          className={`audio-track ${currentlyPlayingTrack === index ? 'currently-playing' : ''}`}
+        >
           {/* Track Header */}
           <div className="track-header">
             <div className="track-label">
               <strong>{getTrackLabel(index)}</strong>
+              {currentlyPlayingTrack === index && (
+                <span className="playing-indicator"> ▶ Playing</span>
+              )}
             </div>
             <div className="track-controls">
               {/* Mute Checkbox */}
@@ -560,6 +669,8 @@ export const MultiTrackWaveform: React.FC<MultiTrackWaveformProps> = ({
       ))}
     </div>
   );
-};
+});
+
+MultiTrackWaveform.displayName = "MultiTrackWaveform";
 
 export default MultiTrackWaveform;

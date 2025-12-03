@@ -140,6 +140,59 @@ export interface PlaybackState {
   muted: boolean;
 }
 
+/**
+ * Sequential playback state (for multi-track playback)
+ * Based on Prestige DeeJay's sequential playback logic
+ */
+export interface SequentialPlaybackState {
+  /** Whether sequential playback is active */
+  isPlaying: boolean;
+
+  /** Current segment index being played */
+  currentSegmentIndex: number;
+
+  /** Current track index being played (0 = source, 1 = careful, 2 = translation) */
+  currentTrackIndex: number;
+
+  /** Whether playback should auto-advance to next segment */
+  autoAdvance: boolean;
+}
+
+/**
+ * Imperative handle for MultiTrackWaveform component
+ * Allows parent component to control playback
+ */
+export interface MultiTrackWaveformHandle {
+  /**
+   * Play a specific segment on a specific track
+   * @param segmentIndex - Index of segment to play
+   * @param trackIndex - Index of track to play (0 = source, 1 = careful, 2 = translation)
+   */
+  playSegment: (segmentIndex: number, trackIndex: number) => void;
+
+  /**
+   * Pause all tracks
+   */
+  pauseAll: () => void;
+
+  /**
+   * Stop all tracks and reset playback
+   */
+  stopAll: () => void;
+
+  /**
+   * Get the current playback time for a specific track
+   * @param trackIndex - Index of track
+   */
+  getCurrentTime: (trackIndex: number) => number;
+
+  /**
+   * Get the duration for a specific track
+   * @param trackIndex - Index of track
+   */
+  getDuration: (trackIndex: number) => number;
+}
+
 // ============================================================================
 // Segmentation Configuration
 // ============================================================================
