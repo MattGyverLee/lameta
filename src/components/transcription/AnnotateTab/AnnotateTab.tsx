@@ -104,6 +104,7 @@ interface AnnotateTabProps {
   onProgress: (currentTime: number) => void;
   onDuration: (duration: number) => void;
   onPlaybackRateChange: (playbackRate: number) => void;
+  onPlaybackChange: (changes: Partial<PlaybackState>) => void;
   onStartSegmentation: () => void;
   onAddSegment: () => void;
   onDeleteSegment: () => void;
@@ -130,6 +131,7 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
   onProgress,
   onDuration,
   onPlaybackRateChange,
+  onPlaybackChange,
   onStartSegmentation,
   onAddSegment,
   onDeleteSegment,
@@ -339,28 +341,64 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         annotationAudioRef.current.playbackRate = playback.playbackRate;
         annotationAudioRef.current.currentTime = 0;
 
+        // Load metadata to get annotation audio duration
+        annotationAudioRef.current.onloadedmetadata = () => {
+          if (!annotationAudioRef.current || !isMountedRef.current) return;
+
+          const annotationDuration = annotationAudioRef.current.duration;
+          const segmentDuration = segment.end - segment.start;
+          const baseRate = playback.playbackRate;
+
+          // Calculate video speed to sync with annotation
+          const videoSpeed = segmentDuration / (annotationDuration / baseRate);
+
+          console.log(`  Segment duration: ${segmentDuration.toFixed(3)}s`);
+          console.log(`  Annotation duration: ${annotationDuration.toFixed(3)}s`);
+          console.log(`  Calculated video speed: ${videoSpeed.toFixed(3)}x`);
+
+          // Seek video to segment start
+          onProgress(segment.start);
+
+          // Update video playback rate
+          onPlaybackRateChange(videoSpeed);
+
+          // Start video on first play only
+          if (playCount === 1 && !playback.playing) {
+            onTogglePlay();
+          }
+        };
+
         // Play annotation audio
         annotationAudioRef.current.play().catch((err) => {
           console.error("Error playing annotation audio:", err);
         });
 
-        // Play video (muted) synchronized with annotation audio
-        // Start video at segment start
-        onProgress(segment.start);
-        if (!playback.playing) {
-          onTogglePlay();
-        }
-
-        // When audio ends, stop video and play the next iteration
+        // When audio ends, continue playing or finish
         annotationAudioRef.current.onended = () => {
           if (isMountedRef.current) {
-            // Stop video playback
-            if (playback.playing) {
-              onTogglePlay();
+            console.log(`Audio ended. playCount=${playCount}, maxPlays=${maxPlays}`);
+            if (playCount < maxPlays) {
+              // Continue to next iteration - video stays playing
+              console.log(`  -> Continuing to next iteration`);
+              const timeout = setTimeout(playSegment, 100);
+              activeTimeoutsRef.current.add(timeout);
+            } else {
+              // Finished all plays
+              console.log(`  -> All plays finished`);
+              console.log(`  -> Video playing state: ${playback.playing}`);
+
+              // Stop video and disable looping
+              if (playback.playing) {
+                console.log(`  -> Stopping video`);
+                onTogglePlay();
+              }
+
+              // Disable loop to prevent video from continuing to loop
+              console.log(`  -> Disabling loop`);
+              onPlaybackChange({ loop: false });
+
+              console.log(`Finished playing segment ${maxPlays} times`);
             }
-            // Small delay between plays, then repeat
-            const timeout = setTimeout(playSegment, 100);
-            activeTimeoutsRef.current.add(timeout);
           }
         };
       } else {
@@ -370,8 +408,22 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
           onTogglePlay();
         }
 
-        // Wait for segment duration, then play again
-        const timeout = setTimeout(playSegment, (segment.end - segment.start) * 1000);
+        // Wait for segment duration, then play again or finish
+        const segmentDuration = (segment.end - segment.start) * 1000;
+        const timeout = setTimeout(() => {
+          if (playCount >= maxPlays) {
+            // Finished all plays
+            console.log(`Finished playing segment ${maxPlays} times (original)`);
+            if (playback.playing) {
+              onTogglePlay();
+            }
+            // Disable loop
+            onPlaybackChange({ loop: false });
+          } else {
+            // Continue to next iteration
+            playSegment();
+          }
+        }, segmentDuration);
         activeTimeoutsRef.current.add(timeout);
       }
     };
@@ -509,18 +561,27 @@ export const AnnotateTab: React.FC<AnnotateTabProps> = ({
         // When audio ends, continue playing or finish
         annotationAudioRef.current.onended = () => {
           if (isMountedRef.current) {
+            console.log(`Audio ended. playCount=${playCount}, maxPlays=${maxPlays}`);
             if (playCount < maxPlays) {
               // Continue to next iteration - video stays playing
+              console.log(`  -> Continuing to next iteration`);
               const timeout = setTimeout(playSegment, 100);
               activeTimeoutsRef.current.add(timeout);
             } else {
-              // Finished all plays, stop video and reset
+              // Finished all plays
+              console.log(`  -> All plays finished`);
+              console.log(`  -> Video playing state: ${playback.playing}`);
+
+              // Stop video and disable looping to prevent VideoPlayerSection from continuing
               if (playback.playing) {
+                console.log(`  -> Stopping video`);
                 onTogglePlay();
               }
-              onProgress(segment.start);
-              // Reset playback rate to user's selected rate
-              onPlaybackRateChange(1.0);
+
+              // Disable loop to prevent video from continuing to loop
+              console.log(`  -> Disabling loop`);
+              onPlaybackChange({ loop: false });
+
               console.log(`Finished playing segment ${maxPlays} times (source: ${audioSource})`);
             }
           }

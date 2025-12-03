@@ -558,6 +558,7 @@ export const TranscriptionView: React.FC<TranscriptionViewProps> = ({
           onProgress={handleProgress}
           onDuration={handleDuration}
           onPlaybackRateChange={handlePlaybackRateChange}
+          onPlaybackChange={handlePlaybackChange}
           onStartSegmentation={handleStartSegmentation}
           onAddSegment={handleAddSegment}
           onDeleteSegment={handleDeleteSegment}
